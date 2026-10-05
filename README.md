@@ -1,15 +1,29 @@
 # YouDrive Claimer
 
-Fondations d'une application **locale sur Windows**, en Python 3.12+ et SQLite,
-pour suivre les trajets YouDrive et, ultérieurement, les réclamations.
+Application locale Windows, Python 3.12+ et SQLite. La collecte lit l'historique
+de trajets par l'API de l'application Android officielle, depuis le PC, sans
+téléphone et sans USB. La connexion s'ouvre dans le navigateur seulement quand
+la session locale n'est plus valable. Aucun email ni accès Gmail.
 
-Le projet se concentre actuellement sur les étapes 1 et 2 : stockage, CLI et
-recherche du protocole Android. **Aucun trajet réel n'est encore récupéré.**
-Aucun client HTTP, accès Gmail, génération ou envoi d'email n'est implémenté.
+## Portée
 
-## Installation Windows / PowerShell
+`sync` demande la liste complète des trajets du contrat, avec les points
+d'intérêt. Cette liste n'a pas de paramètre de page : une réponse qui annonce
+une suite interrompt l'import au lieu d'inventer une pagination. Les lignes
+déjà importées depuis l'espace web (`web-visible:`) restent en place. Elles ne
+sont pas fusionnées avec les trajets Android (`android:`), dont l'identité est
+l'horodatage de départ renvoyé par le serveur.
 
-Depuis le dossier du projet, avec Python 3.12 ou ultérieur installé :
+La distance enregistrée est le nombre du champ `distance`, sans conversion :
+l'unité n'est pas indiquée dans le contrat lu. Le premier `sync` réel doit
+être comparé au nombre de trajets du mois affiché dans l'application.
+
+Le mot de passe n'est jamais saisi dans le terminal. Le jeton de
+rafraîchissement reste dans `data/`, hors Git.
+
+## Installation PowerShell
+
+Depuis le dossier du projet, Python minimum 3.12 :
 
 ```powershell
 py -3.14 -m venv .venv
@@ -18,92 +32,81 @@ Copy-Item .env.example .env
 .\.venv\Scripts\python.exe -m youdrive init
 ```
 
-La commande `py -3.14` correspond au Python disponible sur ce PC lors de
-l'initialisation ; adaptez-la à votre version (minimum 3.12).
-L'activation du venv n'est pas nécessaire avec ces commandes.
+Python 3.14 est disponible sur ce PC. Ne recopiez pas le modèle sur un
+`.env` déjà personnalisé. L'identifiant public de connexion est lu dans
+l'APK déjà extraite, `research-private/apk/base.apk`. Ce dossier reste hors Git.
+Aucun téléphone, ADB ou proxy TLS n'est utilisé.
 
-## CLI actuelle
+## Connexion et synchronisation
+
+```powershell
+.\.venv\Scripts\python.exe -m youdrive login
+.\.venv\Scripts\python.exe -m youdrive sync
+```
+
+`login` ouvre la page officielle dans le navigateur et enregistre un handler
+utilisateur `fr.axa.youdrive` (HKCU, supprimable dans le registre). `sync`
+renouvelle le jeton ; s'il est refusé, la même connexion est redemandée, puis
+les trajets sont importés. Vous pouvez aussi double-cliquer
+`scripts/Start-YouDrive.cmd`.
 
 ```powershell
 .\.venv\Scripts\python.exe -m youdrive trips
 .\.venv\Scripts\python.exe -m youdrive candidates
 .\.venv\Scripts\python.exe -m youdrive status
-.\.venv\Scripts\python.exe -m youdrive sync
 ```
 
-- `init` crée les tables, sans supprimer les données existantes.
-- `trips` affiche les trajets locaux, du plus ancien au plus récent.
-- `candidates` affiche les trajets avec score connu inférieur à 100, sans
-  réclamation existante, ainsi que le budget d'envoi restant aujourd'hui.
-  La liste contient tous les candidats ; elle ne prépare ni n'envoie rien.
-- `status` affiche les compteurs locaux et les statuts des réclamations.
-- `sync` explique que le protocole n'est pas vérifié et retourne le code 2,
-  sans appel réseau ni modification de la base.
+- `init` crée les tables sans supprimer les données.
+- `login` enregistre la session sans conserver le mot de passe.
+- `sync` importe la liste Android en une transaction.
+- `trips` affiche les trajets locaux, les plus anciens d'abord.
+- `candidates` affiche scores connus < 100 sans réclamation existante et quota
+  restant ; aucune réclamation n'est préparée ou envoyée.
+- `status` affiche les compteurs et statuts.
 
-Les commandes locales initialisent automatiquement une base absente. Une
-base vide est donc normale tant que l'import réel n'est pas disponible.
-`claims prepare` sera ajouté après validation de la récupération des trajets.
+Les imports répétés actualisent les lignes Android et conservent les
+réclamations. Une réponse invalide, une identité dupliquée ou une liste
+incomplète fait rejeter tout le lot. Les dates naïves sont lues en
+Europe/Paris et stockées en UTC ; les heures ambiguës ou inexistantes au
+changement d'heure sont refusées.
 
 ## Configuration et confidentialité
 
-`.env.example` contient uniquement les réglages connus. Copiez-le en `.env`.
-Les variables d'environnement du processus ont priorité sur ce fichier.
+Variables d'environnement prioritaires sur `.env` :
 
-| Variable | Valeur par défaut | Rôle |
+| Variable | Défaut | Rôle |
 |---|---|---|
-| `YOUDRIVE_DB_PATH` | `data/youdrive.sqlite3` | Fichier SQLite local |
-| `YOUDRIVE_DAILY_CLAIM_LIMIT` | `3` | Quota configurable, entier positif |
-| `YOUDRIVE_TIMEZONE` | `Europe/Paris` | Jour métier et affichage |
-| `YOUDRIVE_LOG_LEVEL` | `INFO` | Niveau des logs JSON sur stderr |
+| `YOUDRIVE_DB_PATH` | `data/youdrive.sqlite3` | SQLite |
+| `YOUDRIVE_DAILY_CLAIM_LIMIT` | `3` | Quota positif |
+| `YOUDRIVE_TIMEZONE` | `Europe/Paris` | Affichage et jour métier |
+| `YOUDRIVE_LOG_LEVEL` | `INFO` | Logs JSON |
 
-Les chemins et `.env` sont résolus depuis le dossier courant : lancez les
-commandes depuis le projet, ou utilisez un chemin absolu pour la base.
-
-`.env`, bases locales, APK et captures réseau sont exclus de Git. Placez les
-autres éléments d'investigation dans `research-private/`, également exclu.
-La base, les captures et un futur `.env` contenant des secrets doivent rester
-privés sur le PC. `.env` et SQLite ne sont pas chiffrés par cette application.
-Les logs ne contiennent que des noms d'événements fixes, sans payload,
-token, mot de passe ou numéro de contrat. L'affichage des trajets est une
-sortie locale volontaire, pas un journal d'exécution.
+Les chemins partent du dossier courant. `.env`, `data/` et
+`research-private/` sont exclus de Git. `data/android-session.json` contient
+les jetons et n'est pas chiffré par cette application. Les journaux affichent
+des événements fixes et des compteurs, sans identifiant de contrat, trajet,
+jeton ou mot de passe. `trips` est une sortie locale volontaire.
 
 ## Modèle et règles
 
-- `Trip` : identifiant local, identifiant YouDrive unique, début/fin, score
-  éventuellement inconnu, distance en km, durée en secondes, événements JSON,
-  GPS JSON facultatif, dates d'import et de dernière synchronisation.
-- `Claim` : trajet unique, création, envoi éventuel, statut (`draft`, `pending`,
-  `corrected`, `rejected`, `unknown`), texte et réponse éventuels.
-- L'état de traitement est calculé depuis les trajets et réclamations : aucun
-  compteur séparé susceptible de diverger. Toute réclamation existante, même
-  brouillon ou refusée, exclut le trajet des candidats.
-- Une contrainte SQLite garantit une seule réclamation par trajet. Une
-  éventuelle relance manuelle nécessitera un workflow explicite ultérieur.
-- Le quota compte les dates **d'envoi**, tous statuts confondus, dans le jour
-  local configuré. Les brouillons non envoyés ne consomment pas ce quota.
-  Le futur workflow devra contrôler et réserver le quota transactionnellement
-  avant tout envoi ; il n'existe actuellement aucun chemin d'envoi.
-- Les dates doivent inclure un fuseau. Elles sont stockées en UTC et affichées
-  dans le fuseau configuré, y compris lors des changements d'heure.
-
-Les champs JSON sont une structure de stockage provisoire, pas un contrat
-de réponse YouDrive. Les unités et champs réels devront être confirmés.
-`create_all` crée uniquement les tables manquantes ; aucune migration de
-schéma existant n'est encore fournie.
+`Trip` stocke identité, début/fin, score facultatif, distance, durée en
+secondes, événements, positions de départ/arrivée et dates
+d'import/synchronisation. `Claim` lie un trajet unique à un statut
+draft/pending/corrected/rejected/unknown, texte et réponse éventuels. Toute
+réclamation, même brouillon, exclut le trajet des candidats. Le quota compte
+les dates d'envoi dans le jour métier ; les brouillons non envoyés ne le
+consomment pas. Aucun chemin d'envoi n'existe. `create_all` crée les tables
+manquantes ; aucune migration n'est fournie.
 
 ## Vérification
 
 ```powershell
 .\.venv\Scripts\python.exe -m pytest
-.\.venv\Scripts\python.exe -m ruff check .
+.\.venv\Scripts\python.exe -m ruff check src tests
 ```
 
-Les tests utilisent des données fictives dans des bases temporaires : ils
-ne prouvent ni l'accès à YouDrive ni la correction d'un trajet réel.
-
-## Suite
-
-Voir [le dossier de recherche](docs/youdrive-api-research.md) pour les faits,
-inconnues, sources officielles et éléments nécessaires à l'analyse de l'APK.
-La prochaine réalisation sera un client minimal en lecture seule, uniquement
-après observation et validation d'un endpoint de trajet réel.
+Les tests utilisent des JSON fictifs et n'ouvrent ni le réseau, ni le
+navigateur, ni le registre. Le premier contrôle réel est un `login` puis un
+`sync` lancés par le titulaire : le nombre de trajets du mois doit
+correspondre à l'application. Voir
+[le dossier de recherche](docs/youdrive-api-research.md).

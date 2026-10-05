@@ -1,1 +1,1 @@
-"""Reserved for a verified read-only YouDrive client. No endpoint is assumed."""
+"""Read-only clients. Trip collection uses the Android API client."""

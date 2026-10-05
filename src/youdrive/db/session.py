@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from sqlalchemy import Engine, URL, create_engine, event
+from sqlalchemy import URL, Engine, create_engine, event
 from sqlalchemy.orm import Session, sessionmaker
 
 from youdrive.models import Base

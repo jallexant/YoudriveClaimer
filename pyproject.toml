@@ -12,6 +12,7 @@ dependencies = ["SQLAlchemy>=2.0,<3", "python-dotenv>=1.0,<2", "tzdata>=2025.1"]
 
 [project.optional-dependencies]
 dev = ["pytest>=8,<10", "ruff>=0.12,<1"]
+web = ["playwright>=1.50,<2"]
 
 [project.scripts]
 youdrive = "youdrive.cli.main:main"
