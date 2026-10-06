@@ -1,3 +1,4 @@
+from dataclasses import replace
 from datetime import UTC, datetime
 
 import pytest
@@ -37,6 +38,18 @@ def test_import_updates_score_and_keeps_claim_and_web_rows(session):
     assert kept.score == 64
     assert kept.claim.text == "déjà préparé"
     assert kept.gps["start_label"] == "Rue de la Paix, 75002 Paris"
+
+
+def test_missing_capture_keeps_the_previous_screenshot(session):
+    name = f"{'ab' * 32}.png"
+    first = replace(trip("phone:same"), screenshot_name=name)
+    import_phone_trips(session, [first])
+    session.commit()
+    import_phone_trips(session, [trip("phone:same", 60)])
+    session.commit()
+    kept = session.scalar(select(Trip).where(Trip.youdrive_id == "phone:same"))
+    assert kept.gps["screenshot"] == name
+    assert kept.score == 60
 
 
 def test_duplicate_batch_imports_nothing(session):

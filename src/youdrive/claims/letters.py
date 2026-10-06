@@ -2,6 +2,7 @@
 
 import re
 from email.message import EmailMessage
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from youdrive.claims.errors import GmailError
@@ -15,6 +16,7 @@ _MONTHS = (
     "septembre", "octobre", "novembre", "décembre",
 )
 _PLACEHOLDER = "[À compléter : ce qui ne correspond pas sur ce trajet]"
+_SCREENSHOT = re.compile(r"[0-9a-f]{64}\.png")
 
 
 def require_contract(settings: Settings) -> str:
@@ -25,15 +27,30 @@ def require_contract(settings: Settings) -> str:
 
 def build_message(settings: Settings, trip: Trip) -> tuple[EmailMessage, str]:
     contract = require_contract(settings)
-    text = _body(settings, trip, contract)
+    capture = _screenshot_path(settings, trip)
+    text = _body(settings, trip, contract, attached=capture is not None)
     message = EmailMessage()
     message["To"] = CLAIM_TO
     message["Subject"] = f"[Formulaire appli] n°{contract}"
     message.set_content(text, charset="utf-8")
+    if capture is not None:
+        message.add_attachment(
+            capture.read_bytes(), maintype="image", subtype="png", filename="trajet.png",
+        )
     return message, text
 
 
-def _body(settings: Settings, trip: Trip, contract: str) -> str:
+def _screenshot_path(settings: Settings, trip: Trip) -> Path | None:
+    raw = trip.gps.get("screenshot") if isinstance(trip.gps, dict) else None
+    if not isinstance(raw, str) or _SCREENSHOT.fullmatch(raw) is None:
+        return None
+    path = settings.db_path.parent / "screenshots" / raw
+    if path.is_file():
+        return path
+    return None
+
+
+def _body(settings: Settings, trip: Trip, contract: str, *, attached: bool) -> str:
     local = trip.started_at.astimezone(ZoneInfo(settings.timezone))
     when = f"{local.day} {_MONTHS[local.month - 1].capitalize()} à {local:%H:%M}"
     lines = [
@@ -46,28 +63,11 @@ def _body(settings: Settings, trip: Trip, contract: str) -> str:
         "",
         f"Trajet du {when}.",
         "",
-        f"Score affiché : {_number(trip.score)}",
-        "Distance : " + (
-            "inconnue" if trip.distance_km is None else f"{_number(trip.distance_km)} km"
-        ),
-        f"Durée : {_duration(trip.duration_seconds)}",
-        "",
-        _PLACEHOLDER,
     ]
+    if attached:
+        lines.extend(["La capture du détail est jointe.", ""])
+    lines.append(_PLACEHOLDER)
     signature = settings.mail_signature.strip()
     if signature:
         lines.extend(["", "-- ", signature])
     return "\n".join(lines)
-
-
-def _number(value: float | None) -> str:
-    if value is None:
-        return "inconnue"
-    return f"{value:.4f}".rstrip("0").rstrip(".").replace(".", ",")
-
-
-def _duration(seconds: int | None) -> str:
-    if seconds is None:
-        return "inconnue"
-    minutes = seconds // 60
-    return f"{minutes // 60:02d}:{minutes % 60:02d}"

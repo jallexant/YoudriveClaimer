@@ -28,8 +28,13 @@ def import_phone_trips(session: Session, trips: list[PhoneTrip]) -> tuple[int, i
         trip.score = incoming.score
         trip.distance_km = incoming.distance_km
         trip.duration_seconds = incoming.duration_seconds
+        previous = trip.gps if isinstance(trip.gps, dict) else {}
+        screenshot = incoming.screenshot_name or previous.get("screenshot")
+        gps = {"start_label": incoming.start_label, "end_label": incoming.end_label}
+        if isinstance(screenshot, str):
+            gps["screenshot"] = screenshot
         trip.events = []
-        trip.gps = {"start_label": incoming.start_label, "end_label": incoming.end_label}
+        trip.gps = gps
         trip.last_synced_at = now
     session.flush()
     return added, updated

@@ -10,6 +10,8 @@ class FakeAdb:
         self.dumps = list(dumps)
         self.taps: list[tuple[int, int]] = []
         self.swipes = 0
+        self.backs = 0
+        self.shots: list[str] = []
 
     def ensure_device(self) -> None:
         return None
@@ -25,6 +27,14 @@ class FakeAdb:
 
     def swipe(self, x1: int, y1: int, x2: int, y2: int) -> None:
         self.swipes += 1
+
+    def back(self) -> None:
+        self.backs += 1
+
+    def screenshot(self, path) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"\x89PNG\r\n\x1a\n")
+        self.shots.append(path.name)
 
 
 def test_scroll_stops_when_the_same_screen_repeats():
@@ -62,6 +72,38 @@ def test_missing_tab_aborts():
     adb = FakeAdb([hierarchy(node("ACCUEIL\nOnglet 1 sur 5"))])
     with pytest.raises(PhoneError, match="introuvable"):
         collect_trips(adb, "Europe/Paris", lambda _delay: None)
+
+
+def test_low_score_detail_is_captured_and_perfect_score_is_not(tmp_path):
+    listed = hierarchy(
+        node(card(score="72"), bounds="[36,437][972,919]"),
+        node(
+            card(
+                score="100", start="12:00", end="12:20",
+                start_label="Quai Saint-Antoine, 69002 Lyon",
+            ),
+            bounds="[36,960][972,1440]",
+        ),
+    )
+    detail = hierarchy(node("VITESSE", clickable="false", bounds="[40,700][300,780]"))
+    adb = FakeAdb([listed, detail, listed, listed])
+    trips = collect_trips(adb, "Europe/Paris", lambda _delay: None, tmp_path)
+    low = next(trip for trip in trips if trip.score == 72)
+    perfect = next(trip for trip in trips if trip.score == 100)
+    assert low.screenshot_name is not None
+    assert (tmp_path / low.screenshot_name).is_file()
+    assert perfect.screenshot_name is None
+    assert adb.shots == [low.screenshot_name]
+    assert adb.backs == 1
+    assert len(adb.taps) == 1
+
+
+def test_untappable_low_score_does_not_import(tmp_path):
+    listed = hierarchy(node(card(score="72"), bounds="[36,1800][972,1830]"))
+    adb = FakeAdb([listed, listed])
+    with pytest.raises(PhoneError, match="Capture du détail"):
+        collect_trips(adb, "Europe/Paris", lambda _delay: None, tmp_path)
+    assert adb.shots == []
 
 
 def test_unstable_list_is_not_returned(monkeypatch):

@@ -26,6 +26,7 @@ def adb_executable() -> str:
 class Adb:
     def __init__(self) -> None:
         self.executable = adb_executable()
+
     def ensure_device(self) -> None:
         result = self._run(["get-state"])
         if result.returncode != 0 or result.stdout.strip() != b"device":
@@ -57,6 +58,23 @@ class Adb:
         result = self._run(["shell", "input", "tap", str(x), str(y)])
         if result.returncode != 0:
             raise PhoneError("Écran YouDrive illisible ; aucun import effectué.")
+
+    def back(self) -> None:
+        result = self._run(["shell", "input", "keyevent", "4"])
+        if result.returncode != 0:
+            raise PhoneError("Écran YouDrive illisible ; aucun import effectué.")
+
+    def screenshot(self, path: Path) -> None:
+        remote = "/sdcard/youdrive-detail.png"
+        created = self._run(["shell", "screencap", "-p", remote])
+        path.parent.mkdir(parents=True, exist_ok=True)
+        pulled = self._run(["pull", remote, str(path)])
+        self._run(["shell", "rm", "-f", remote])
+        if created.returncode != 0 or pulled.returncode != 0 or not path.is_file():
+            raise PhoneError("Capture d'écran impossible.")
+        if path.stat().st_size < 8:
+            path.unlink(missing_ok=True)
+            raise PhoneError("Capture d'écran impossible.")
 
     def swipe(self, x1: int, y1: int, x2: int, y2: int) -> None:
         result = self._run([

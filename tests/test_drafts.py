@@ -35,14 +35,41 @@ def test_letter_uses_the_form_shape_without_inventing_a_reason():
     assert message["To"] == "servicetechniqueyoudrive@directassurance.fr"
     assert message["Subject"] == "[Formulaire appli] n°000"
     assert "Trajet du 26 Septembre à 14:58." in text
-    assert "Score affiché : 72" in text
-    assert "Distance : 12,5 km" in text
-    assert "Durée : 00:23" in text
+    assert "Score affiché" not in text
+    assert "Distance" not in text
+    assert "Durée" not in text
     assert "[À compléter : ce qui ne correspond pas sur ce trajet]" in text
     assert "Signature locale" in text
     assert "adresse privée" not in text
     assert "régulateur" not in text
     assert "basse vitesse" not in text
+
+
+def test_draft_attaches_the_detail_capture_and_ignores_other_paths(tmp_path):
+    name = f"{'cd' * 32}.png"
+    folder = tmp_path / "screenshots"
+    folder.mkdir()
+    (folder / name).write_bytes(b"\x89PNG\r\n\x1a\nsecret-image")
+    trip = Trip(
+        youdrive_id="phone:letter", started_at=datetime(2026, 9, 26, 12, 58, tzinfo=UTC),
+        score=72, distance_km=8, duration_seconds=23 * 60,
+        gps={"screenshot": name, "start_label": "adresse privée"},
+    )
+    settings = Settings(contract_number="000", db_path=tmp_path / "db.sqlite3")
+    message, text = build_message(settings, trip)
+    assert "La capture du détail est jointe." in text
+    assert "adresse privée" not in text
+    attachments = list(message.iter_attachments())
+    assert len(attachments) == 1
+    assert attachments[0].get_filename() == "trajet.png"
+    assert attachments[0].get_payload(decode=True) == b"\x89PNG\r\n\x1a\nsecret-image"
+    outside = Trip(
+        youdrive_id="phone:letter", started_at=trip.started_at, score=72,
+        gps={"screenshot": "../secret.png"},
+    )
+    plain, body = build_message(settings, outside)
+    assert "jointe" not in body
+    assert list(plain.iter_attachments()) == []
 
 
 def test_missing_contract_is_rejected_without_calling_gmail(session):

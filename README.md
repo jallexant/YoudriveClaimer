@@ -13,7 +13,9 @@ y compris les anciennes lignes `web-visible:`, restent en place. L'identité
 d'un trajet téléphone est `phone:` plus une empreinte de la date, des heures,
 de la distance et des adresses, sans le score : une correction de score met à
 jour la même ligne. Les adresses restent dans la base locale et ne sont pas
-recopiées dans le mail.
+recopiées dans le texte du mail. Pour chaque score inférieur à 100, `sync`
+ouvre le détail et enregistre une capture dans `data/screenshots/`. `drafts`
+joint cette capture au brouillon.
 
 Le téléphone doit être déverrouillé, le débogage USB autorisé, et YouDrive déjà
 connecté. `adb` est pris dans le `PATH`, sinon dans le SDK Android
@@ -46,7 +48,8 @@ et le fichier client Google restent dans `.env`, hors Git.
 Vous pouvez aussi double-cliquer `scripts/Start-YouDrive.cmd`.
 
 - `init` crée les tables sans supprimer les données.
-- `sync` importe les cartes de l'écran Trajets en une transaction.
+- `sync` importe les cartes de l'écran Trajets en une transaction et capture
+  le détail des scores inférieurs à 100.
 - `trips` affiche les trajets locaux, les plus anciens d'abord.
 - `candidates` affiche les scores connus inférieurs à 100 sans réclamation.
 - `status` affiche les compteurs. Le budget d'envoi compte les dates d'envoi ;
@@ -72,9 +75,9 @@ trajet reste candidat.
 
 Chaque brouillon est adressé à `servicetechniqueyoudrive@directassurance.fr`.
 L'objet reprend `[Formulaire appli] n°` et `YOUDRIVE_CONTRACT_NUMBER`. Le corps
-reprend la demande de précision, la date et l'heure du trajet, puis le score,
-la distance et la durée lus à l'écran. La phrase de motif reste à compléter
-dans Gmail. `YOUDRIVE_MAIL_SIGNATURE` est ajoutée seulement si elle est
+reprend la demande de précision, la date et l'heure du trajet. Le score, la
+distance et la durée sont dans la capture jointe. La phrase de motif reste à
+compléter dans Gmail. `YOUDRIVE_MAIL_SIGNATURE` est ajoutée seulement si elle est
 renseignée. Aucun appel d'envoi n'est fait.
 
 ## Configuration

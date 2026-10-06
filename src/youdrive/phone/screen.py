@@ -4,7 +4,7 @@ import hashlib
 import re
 import unicodedata
 import xml.etree.ElementTree as ET
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
@@ -37,17 +37,53 @@ class PhoneTrip:
     duration_seconds: int
     start_label: str
     end_label: str
+    screenshot_name: str | None = None
+
+
+def with_screenshot(trip: PhoneTrip) -> PhoneTrip:
+    return replace(trip, screenshot_name=screenshot_filename(trip.remote_id))
+
+
+def screenshot_filename(remote_id: str) -> str:
+    digest = remote_id.removeprefix("phone:")
+    if not re.fullmatch(r"[0-9a-f]{64}", digest):
+        raise PhoneError("Capture d'écran impossible.")
+    return f"{digest}.png"
 
 
 def parse_cards(xml: str, timezone: str) -> list[PhoneTrip]:
+    return [trip for trip, _bounds in parse_visible_cards(xml, timezone)]
+
+
+def parse_visible_cards(xml: str, timezone: str) -> list[tuple[PhoneTrip, str]]:
     zone = ZoneInfo(timezone)
     cards = []
     for node in _trip_nodes(_root(xml)):
-        cards.append(_card(node["desc"], zone))
-    identities = [card.remote_id for card in cards]
+        cards.append((_card(str(node["desc"]), zone), str(node["bounds"])))
+    identities = [trip.remote_id for trip, _bounds in cards]
     if len(identities) != len(set(identities)):
         raise PhoneError("Identité de trajet dupliquée ; aucun import effectué.")
     return cards
+
+
+def tappable(bounds: str) -> bool:
+    match = _BOUNDS.fullmatch(bounds)
+    if match is None:
+        return False
+    _left, top, _right, bottom = (int(item) for item in match.groups())
+    center_y = (top + bottom) // 2
+    return bottom - top >= 70 and top >= 360 and 400 <= center_y <= 1940
+
+
+def screen_contains(xml: str, label: str) -> bool:
+    folded = _fold(label)
+    for node in _nodes(_root(xml)):
+        if node["package"] != PACKAGE:
+            continue
+        for line in str(node["desc"]).splitlines():
+            if _fold(line.strip()) == folded:
+                return True
+    return False
 
 
 def has_label(xml: str, prefix: str) -> bool:

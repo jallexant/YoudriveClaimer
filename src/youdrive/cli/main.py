@@ -58,7 +58,9 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         incoming = None
         if args.command == "sync":
-            incoming = collect_trips(Adb(), settings.timezone, time.sleep)
+            incoming = collect_trips(
+                Adb(), settings.timezone, time.sleep, settings.db_path.parent / "screenshots",
+            )
         engine, sessions = open_database(settings.db_path)
         initialize_database(engine)
         with sessions() as session:
@@ -70,6 +72,8 @@ def main(argv: list[str] | None = None) -> int:
                     f"Trajets lus : {len(incoming)} ; nouveaux : {added} ; "
                     f"actualisés : {updated}."
                 )
+                shots = sum(trip.screenshot_name is not None for trip in incoming)
+                print(f"Captures de détail : {shots}.")
                 print("Source : écran YouDrive via USB. Défilement stabilisé.")
                 print("Les trajets déjà importés sont conservés. Aucune réclamation envoyée.")
                 print_trips(list_trips(session), settings.timezone)
