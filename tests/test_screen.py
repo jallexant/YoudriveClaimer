@@ -78,6 +78,21 @@ def test_unreadable_card_rejects_the_screen():
         parse_cards(hierarchy(node("30 sept. 2026\n72\n8 km")), "Europe/Paris")
 
 
+def test_unrecorded_trip_without_score_is_ignored():
+    unavailable = "\n".join([
+        "22 sept. 2026",
+        "27 km",
+        "00:27",
+        "12:21 - 12:48",
+        "Trajet non enregistré. Votre téléphone doit être connecté pour bénéficier "
+        "de votre remise sur chaque trajet.",
+    ])
+    xml = hierarchy(node(unavailable), node(card(date="22 sept. 2026")))
+    trips = parse_cards(xml, "Europe/Paris")
+    assert len(trips) == 1
+    assert trips[0].score == 72
+
+
 def test_ambiguous_and_missing_hours_are_rejected():
     ambiguous = card(date="25 oct. 2026", start="02:30", end="03:00")
     missing = card(date="29 mars 2026", start="02:30", end="03:10")

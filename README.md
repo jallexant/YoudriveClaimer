@@ -6,16 +6,20 @@ réclamations sont préparées comme brouillons Gmail. Aucun message n'est envoy
 
 ## Portée
 
-`sync` ouvre YouDrive, affiche l'onglet Trajets, lit les cartes visibles et
-fait défiler jusqu'à ce que le même écran revienne. Une carte illisible ou une
-liste qui ne se stabilise pas annule tout l'import. Les lignes déjà en base,
-y compris les anciennes lignes `web-visible:`, restent en place. L'identité
+`sync` ouvre YouDrive, attend l'écran et le relance jusqu'à trois fois s'il
+se ferme ou tarde à s'afficher, puis affiche l'onglet Trajets et lit les cartes
+du plus récent au plus ancien. Elle s'arrête au premier trajet `phone:` déjà en base.
+Sans trajet connu, ou avec `sync --full`, elle va jusqu'au bas de la liste.
+Chaque défilement doit laisser au moins une carte de l'écran précédent visible ;
+sinon la liste remonte un peu, pour ne sauter aucune carte. Une carte illisible ou une
+liste qui ne se stabilise pas annule tout l'import. Sans `--full`, les lignes déjà
+en base, y compris les anciennes lignes `web-visible:`, ne sont pas modifiées. L'identité
 d'un trajet téléphone est `phone:` plus une empreinte de la date, des heures,
 de la distance et des adresses, sans le score : une correction de score met à
 jour la même ligne. Les adresses restent dans la base locale et ne sont pas
 recopiées dans le texte du mail. Pour chaque score inférieur à 100, `sync`
 ouvre le détail et enregistre une capture dans `data/screenshots/`. `drafts`
-joint cette capture au brouillon.
+insère cette capture dans le corps du brouillon.
 
 Le téléphone doit être déverrouillé, le débogage USB autorisé, et YouDrive déjà
 connecté. `adb` est pris dans le `PATH`, sinon dans le SDK Android
@@ -50,6 +54,12 @@ Vous pouvez aussi double-cliquer `scripts/Start-YouDrive.cmd`.
 - `init` crée les tables sans supprimer les données.
 - `sync` importe les cartes de l'écran Trajets en une transaction et capture
   le détail des scores inférieurs à 100.
+- `sync --full` relit toute la liste et complète les trajets manquants. Les lignes
+  déjà en base sont mises à jour.
+- `mark-claimed --before AAAA-MM-JJ` marque comme déjà réclamés, statut
+  `unknown`, les scores inférieurs à 100 commencés avant cette date, heure de
+  Paris. Ils ne sont plus candidats. Le budget de brouillons du jour n'est pas
+  entamé.
 - `trips` affiche les trajets locaux, les plus anciens d'abord.
 - `candidates` affiche les scores connus inférieurs à 100 sans réclamation.
 - `status` affiche les compteurs. Le budget d'envoi compte les dates d'envoi ;
@@ -76,7 +86,7 @@ trajet reste candidat.
 Chaque brouillon est adressé à `servicetechniqueyoudrive@directassurance.fr`.
 L'objet reprend `[Formulaire appli] n°` et `YOUDRIVE_CONTRACT_NUMBER`. Le corps
 reprend la demande de précision, la date et l'heure du trajet. Le score, la
-distance et la durée sont dans la capture jointe. La phrase de motif reste à
+distance et la durée sont dans la capture affichée dans le corps. La phrase de motif reste à
 compléter dans Gmail. `YOUDRIVE_MAIL_SIGNATURE` est ajoutée seulement si elle est
 renseignée. Aucun appel d'envoi n'est fait.
 

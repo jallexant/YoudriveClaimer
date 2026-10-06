@@ -45,7 +45,7 @@ def test_letter_uses_the_form_shape_without_inventing_a_reason():
     assert "basse vitesse" not in text
 
 
-def test_draft_attaches_the_detail_capture_and_ignores_other_paths(tmp_path):
+def test_draft_shows_the_detail_capture_in_the_body(tmp_path):
     name = f"{'cd' * 32}.png"
     folder = tmp_path / "screenshots"
     folder.mkdir()
@@ -57,19 +57,23 @@ def test_draft_attaches_the_detail_capture_and_ignores_other_paths(tmp_path):
     )
     settings = Settings(contract_number="000", db_path=tmp_path / "db.sqlite3")
     message, text = build_message(settings, trip)
-    assert "La capture du détail est jointe." in text
     assert "adresse privée" not in text
-    attachments = list(message.iter_attachments())
-    assert len(attachments) == 1
-    assert attachments[0].get_filename() == "trajet.png"
-    assert attachments[0].get_payload(decode=True) == b"\x89PNG\r\n\x1a\nsecret-image"
+    assert list(message.iter_attachments()) == []
+    images = [part for part in message.walk() if part.get_content_type() == "image/png"]
+    assert len(images) == 1
+    assert images[0].get_content_disposition() == "inline"
+    assert images[0]["Content-ID"] == "<trajet@youdrive>"
+    assert images[0].get_payload(decode=True) == b"\x89PNG\r\n\x1a\nsecret-image"
+    html = message.get_body(preferencelist=("html",)).get_content()
+    assert 'src="cid:trajet@youdrive"' in html
+    assert "adresse privée" not in html
     outside = Trip(
         youdrive_id="phone:letter", started_at=trip.started_at, score=72,
         gps={"screenshot": "../secret.png"},
     )
     plain, body = build_message(settings, outside)
-    assert "jointe" not in body
-    assert list(plain.iter_attachments()) == []
+    assert plain.get_content_type() == "text/plain"
+    assert "secret" not in body
 
 
 def test_missing_contract_is_rejected_without_calling_gmail(session):

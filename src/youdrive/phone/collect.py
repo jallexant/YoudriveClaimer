@@ -20,52 +20,90 @@ from youdrive.phone.screen import (
 )
 
 MAX_SCROLLS = 200
+LAUNCH_ATTEMPTS = 3
+POLLS_PER_LAUNCH = 16
 
 
 def collect_trips(
     adb: Adb, timezone: str, sleeper: Callable[[float], None],
-    screenshot_dir: Path | None = None,
-) -> list[PhoneTrip]:
+    screenshot_dir: Path | None = None, known_ids: set[str] | None = None,
+) -> tuple[list[PhoneTrip], bool]:
     adb.ensure_device()
-    adb.launch()
-    sleeper(1.2)
-    xml = _open_trips(adb, adb.dump(), timezone, sleeper)
+    xml = _await_youdrive(adb, timezone, sleeper)
+    xml = _open_trips(adb, xml, timezone, sleeper)
+    adb.rewind()
+    sleeper(0.8)
+    xml = adb.dump()
     seen: dict[str, PhoneTrip] = {}
     captured: set[str] = set()
+    known = known_ids or set()
     previous: tuple[str, ...] | None = None
+    stagnant = 0
     for _ in range(MAX_SCROLLS):
-        if screenshot_dir is not None:
-            xml = _shoot_visible(adb, xml, timezone, screenshot_dir, captured, sleeper)
         cards = parse_cards(xml, timezone)
-        current = tuple(card.remote_id for card in cards)
-        if previous == current:
-            trips = sorted(seen.values(), key=lambda trip: (trip.started_at, trip.remote_id))
-            if screenshot_dir is not None and any(
-                trip.score < 100 and trip.remote_id not in captured for trip in trips
-            ):
-                raise PhoneError("Capture du détail incomplète ; aucun import effectué.")
-            return [
-                with_screenshot(trip) if trip.remote_id in captured else trip for trip in trips
-            ]
+        fresh: list[PhoneTrip] = []
+        reached_known = False
         for card in cards:
+            if card.remote_id in known:
+                reached_known = True
+                break
+            fresh.append(card)
+        if screenshot_dir is not None:
+            xml = _shoot_visible(
+                adb, xml, timezone, screenshot_dir, captured, sleeper,
+                {card.remote_id for card in fresh},
+            )
+        for card in fresh:
             seen[card.remote_id] = card
+        if reached_known:
+            return _finish(seen, captured, screenshot_dir), True
+        current = tuple(card.remote_id for card in cards)
+        stagnant = stagnant + 1 if previous == current else 0
+        if stagnant >= 2:
+            return _finish(seen, captured, screenshot_dir), False
         previous = current
-        x1, y1, x2, y2 = swipe_points(xml)
-        adb.swipe(x1, y1, x2, y2)
+        xml = _scroll_with_overlap(adb, xml, set(current), timezone, sleeper)
+    raise PhoneError("Liste incomplète ; aucun import effectué.")
+
+
+def _scroll_with_overlap(
+    adb: Adb, xml: str, before: set[str], timezone: str, sleeper: Callable[[float], None],
+) -> str:
+    x1, y1, x2, y2 = swipe_points(xml)
+    adb.swipe(x1, y1, x2, y2)
+    sleeper(0.8)
+    xml = adb.dump()
+    for _ in range(4):
+        after = {card.remote_id for card in parse_cards(xml, timezone)}
+        if not before or not after or before & after:
+            return xml
+        adb.swipe(x1, y2, x1, y2 + (y1 - y2) // 2)
         sleeper(0.8)
         xml = adb.dump()
-    raise PhoneError("Liste incomplète ; aucun import effectué.")
+    raise PhoneError("Défilement trop rapide ; aucun import effectué.")
+
+
+def _finish(
+    seen: dict[str, PhoneTrip], captured: set[str], screenshot_dir: Path | None,
+) -> list[PhoneTrip]:
+    trips = sorted(seen.values(), key=lambda trip: (trip.started_at, trip.remote_id))
+    if screenshot_dir is not None and any(
+        trip.score < 100 and trip.remote_id not in captured for trip in trips
+    ):
+        raise PhoneError("Capture du détail incomplète ; aucun import effectué.")
+    return [with_screenshot(trip) if trip.remote_id in captured else trip for trip in trips]
 
 
 def _shoot_visible(
     adb: Adb, xml: str, timezone: str, directory: Path, captured: set[str],
-    sleeper: Callable[[float], None],
+    sleeper: Callable[[float], None], allowed: set[str],
 ) -> str:
     for _ in range(8):
         targets = [
             (trip, bounds)
             for trip, bounds in parse_visible_cards(xml, timezone)
-            if trip.score < 100 and trip.remote_id not in captured and tappable(bounds)
+            if trip.remote_id in allowed and trip.score < 100
+            and trip.remote_id not in captured and tappable(bounds)
         ]
         if not targets:
             return xml
@@ -122,6 +160,35 @@ def _return_to_anchor(
         sleeper(0.5)
         xml = adb.dump()
     raise PhoneError("Capture du détail incomplète ; aucun import effectué.")
+
+
+def _await_youdrive(
+    adb: Adb, timezone: str, sleeper: Callable[[float], None],
+) -> str:
+    for _attempt in range(LAUNCH_ATTEMPTS):
+        adb.launch()
+        sleeper(2.0)
+        seen_running = False
+        for _poll in range(POLLS_PER_LAUNCH):
+            running = adb.app_running()
+            if running:
+                seen_running = True
+                xml = adb.try_dump()
+                if xml is not None and _screen_ready(xml, timezone):
+                    return xml
+            elif seen_running:
+                break
+            sleeper(1.5)
+    raise PhoneError(
+        "Onglet Trajets introuvable ; l'application s'est fermée "
+        "ou n'a pas fini de s'afficher. Aucun import effectué.",
+    )
+
+
+def _screen_ready(xml: str, timezone: str) -> bool:
+    if has_label(xml, "RÉCAP") or has_label(xml, "TRAJETS"):
+        return True
+    return bool(parse_cards(xml, timezone))
 
 
 def _open_trips(

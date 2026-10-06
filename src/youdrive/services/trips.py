@@ -18,6 +18,21 @@ def list_candidates(session: Session) -> list[Trip]:
     return list(session.scalars(statement.order_by(Trip.started_at, Trip.id)))
 
 
+def mark_claimed_before(session: Session, cutoff: datetime) -> int:
+    """Record trips already claimed outside the app so they stop being candidates."""
+    if cutoff.tzinfo is None or cutoff.utcoffset() is None:
+        raise ValueError("Une date doit inclure son fuseau horaire.")
+    trips = session.scalars(
+        select(Trip).where(Trip.score < 100, ~Trip.claim.has(), Trip.started_at < cutoff)
+    ).all()
+    for trip in trips:
+        session.add(Claim(
+            trip=trip, created_at=trip.started_at, status=ClaimStatus.UNKNOWN,
+            text="Réclamation faite hors application.",
+        ))
+    return len(trips)
+
+
 def count_sent_today(session: Session, now: datetime, timezone: str) -> int:
     if now.tzinfo is None or now.utcoffset() is None:
         raise ValueError("Une date doit inclure son fuseau horaire.")

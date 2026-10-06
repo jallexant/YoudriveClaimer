@@ -40,6 +40,18 @@ class Adb:
         if result.returncode != 0:
             raise PhoneError("Écran YouDrive illisible ; aucun import effectué.")
 
+    def app_running(self) -> bool:
+        result = self._run(["shell", "pidof", "fr.axa.youdrive"])
+        return bool(result.stdout.strip())
+
+    def try_dump(self) -> str | None:
+        try:
+            return self.dump()
+        except PhoneError as exc:
+            if str(exc).startswith("Écran YouDrive illisible"):
+                return None
+            raise
+
     def dump(self) -> str:
         remote = "/sdcard/window_dump.xml"
         created = self._run(["shell", "uiautomator", "dump", remote])
@@ -64,6 +76,15 @@ class Adb:
         if result.returncode != 0:
             raise PhoneError("Écran YouDrive illisible ; aucun import effectué.")
 
+    def rewind(self) -> None:
+        script = (
+            "i=0; while [ $i -lt 100 ]; do "
+            "input swipe 500 500 500 1900 30; i=$((i+1)); done"
+        )
+        result = self._run(["shell", script])
+        if result.returncode != 0:
+            raise PhoneError("Écran YouDrive illisible ; aucun import effectué.")
+
     def screenshot(self, path: Path) -> None:
         remote = "/sdcard/youdrive-detail.png"
         created = self._run(["shell", "screencap", "-p", remote])
@@ -78,7 +99,7 @@ class Adb:
 
     def swipe(self, x1: int, y1: int, x2: int, y2: int) -> None:
         result = self._run([
-            "shell", "input", "swipe", str(x1), str(y1), str(x2), str(y2), "400",
+            "shell", "input", "swipe", str(x1), str(y1), str(x2), str(y2), "1000",
         ])
         if result.returncode != 0:
             raise PhoneError("Écran YouDrive illisible ; aucun import effectué.")

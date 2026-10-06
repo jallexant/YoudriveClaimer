@@ -59,11 +59,25 @@ def parse_visible_cards(xml: str, timezone: str) -> list[tuple[PhoneTrip, str]]:
     zone = ZoneInfo(timezone)
     cards = []
     for node in _trip_nodes(_root(xml)):
-        cards.append((_card(str(node["desc"]), zone), str(node["bounds"])))
+        desc = str(node["desc"])
+        if _unrecorded(desc):
+            continue
+        cards.append((_card(desc, zone), str(node["bounds"])))
     identities = [trip.remote_id for trip, _bounds in cards]
     if len(identities) != len(set(identities)):
         raise PhoneError("Identité de trajet dupliquée ; aucun import effectué.")
     return cards
+
+
+def _unrecorded(desc: str) -> bool:
+    lines = [line.strip() for line in desc.splitlines() if line.strip()]
+    return (
+        len(lines) == 5
+        and _DATE.fullmatch(lines[0]) is not None
+        and _DISTANCE.fullmatch(lines[1]) is not None
+        and _DURATION.fullmatch(lines[2]) is not None
+        and _fold(lines[4]).startswith("TRAJET NON ENREGISTRE")
+    )
 
 
 def tappable(bounds: str) -> bool:
@@ -120,8 +134,8 @@ def swipe_points(xml: str) -> tuple[int, int, int, int]:
     lowest = max(box[3] for box in boxes)
     highest = min(box[1] for box in boxes)
     start = lowest - 40
-    end = highest + 40
-    if start - end < 240:
+    end = start - max(240, (lowest - highest) // 2)
+    if end < highest:
         start = highest + 900
         end = highest + 200
     return ((left + right) // 2, start, (left + right) // 2, end)

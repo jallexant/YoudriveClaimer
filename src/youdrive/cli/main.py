@@ -2,9 +2,11 @@ import argparse
 import logging
 import sys
 import time
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
+from datetime import time as dt_time
 from zoneinfo import ZoneInfo
 
+from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 
 from youdrive.claims.errors import GmailError
@@ -20,6 +22,7 @@ from youdrive.services.sync import import_phone_trips
 from youdrive.services.trips import (
     list_candidates,
     list_trips,
+    mark_claimed_before,
     remaining_daily_budget,
     remaining_draft_budget,
     summarize,
@@ -42,9 +45,22 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Suivi local des trajets et réclamations YouDrive")
     parser.add_argument(
         "command",
-        choices=["init", "sync", "trips", "candidates", "status", "gmail-login", "drafts"],
+        choices=[
+            "init", "sync", "trips", "candidates", "status", "gmail-login", "drafts",
+            "mark-claimed",
+        ],
+    )
+    parser.add_argument(
+        "--before", type=date.fromisoformat, metavar="AAAA-MM-JJ",
+        help="mark-claimed : trajets commencés avant cette date (heure de Paris)",
+    )
+    parser.add_argument(
+        "--full", action="store_true",
+        help="sync : relire toute la liste au lieu de s'arrêter au premier trajet connu",
     )
     args = parser.parse_args(argv)
+    if args.command == "mark-claimed" and args.before is None:
+        parser.error("mark-claimed demande --before AAAA-MM-JJ")
     remove_legacy_auth_protocol()
     engine = None
     try:
@@ -57,12 +73,20 @@ def main(argv: list[str] | None = None) -> int:
             print("Connexion Gmail enregistrée. Aucun message envoyé.")
             return 0
         incoming = None
-        if args.command == "sync":
-            incoming = collect_trips(
-                Adb(), settings.timezone, time.sleep, settings.db_path.parent / "screenshots",
-            )
+        reached_known = False
         engine, sessions = open_database(settings.db_path)
         initialize_database(engine)
+        if args.command == "sync":
+            known: set[str] = set()
+            if not args.full:
+                with sessions() as session:
+                    known = set(session.scalars(
+                        select(Trip.youdrive_id).where(Trip.youdrive_id.like("phone:%"))
+                    ))
+            incoming, reached_known = collect_trips(
+                Adb(), settings.timezone, time.sleep,
+                settings.db_path.parent / "screenshots", known,
+            )
         with sessions() as session:
             now = datetime.now(UTC)
             if incoming is not None:
@@ -74,8 +98,13 @@ def main(argv: list[str] | None = None) -> int:
                 )
                 shots = sum(trip.screenshot_name is not None for trip in incoming)
                 print(f"Captures de détail : {shots}.")
-                print("Source : écran YouDrive via USB. Défilement stabilisé.")
-                print("Les trajets déjà importés sont conservés. Aucune réclamation envoyée.")
+                print("Source : écran YouDrive via USB.")
+                if reached_known:
+                    print("Arrêt au premier trajet déjà en base.")
+                    print("Les trajets plus anciens ne sont pas relus.")
+                else:
+                    print("Fin de la liste atteinte.")
+                print("Aucune réclamation envoyée.")
                 print_trips(list_trips(session), settings.timezone)
             elif args.command == "drafts":
                 from youdrive.claims.drafts import prepare_drafts
@@ -88,6 +117,12 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"Brouillons créés : {made}.")
                 print(f"Préparations restantes aujourd'hui : {left}/{settings.daily_claim_limit}.")
                 print("Aucun message envoyé.")
+            elif args.command == "mark-claimed":
+                cutoff = datetime.combine(args.before, dt_time.min, ZoneInfo(settings.timezone))
+                marked = mark_claimed_before(session, cutoff)
+                session.commit()
+                print(f"Trajets marqués comme déjà réclamés : {marked}.")
+                print("Aucun brouillon créé, aucun message envoyé.")
             elif args.command == "init":
                 print("Base SQLite initialisée.")
             elif args.command == "trips":
