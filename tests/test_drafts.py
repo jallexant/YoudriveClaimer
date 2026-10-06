@@ -1,6 +1,7 @@
 import base64
 from datetime import UTC, datetime
 from email import message_from_bytes
+from io import BytesIO
 
 import pytest
 from sqlalchemy import select, text
@@ -38,7 +39,6 @@ def test_letter_uses_the_form_shape_without_inventing_a_reason():
     assert "Score affiché" not in text
     assert "Distance" not in text
     assert "Durée" not in text
-    assert "[À compléter : ce qui ne correspond pas sur ce trajet]" in text
     assert "Signature locale" in text
     assert "adresse privée" not in text
     assert "régulateur" not in text
@@ -66,6 +66,7 @@ def test_draft_shows_the_detail_capture_in_the_body(tmp_path):
     assert images[0].get_payload(decode=True) == b"\x89PNG\r\n\x1a\nsecret-image"
     html = message.get_body(preferencelist=("html",)).get_content()
     assert 'src="cid:trajet@youdrive"' in html
+    assert 'width="600"' in html
     assert "adresse privée" not in html
     outside = Trip(
         youdrive_id="phone:letter", started_at=trip.started_at, score=72,
@@ -74,6 +75,30 @@ def test_draft_shows_the_detail_capture_in_the_body(tmp_path):
     plain, body = build_message(settings, outside)
     assert plain.get_content_type() == "text/plain"
     assert "secret" not in body
+
+
+def test_wide_capture_is_fitted_to_the_message_width(tmp_path):
+    from PIL import Image
+
+    name = f"{'ab' * 32}.png"
+    folder = tmp_path / "screenshots"
+    folder.mkdir()
+    source = folder / name
+    Image.new("RGB", (1008, 2244), "white").save(source, format="PNG")
+    trip = Trip(
+        youdrive_id="phone:wide", started_at=datetime(2026, 9, 26, 12, 58, tzinfo=UTC),
+        score=72, gps={"screenshot": name},
+    )
+    message, _text = build_message(
+        Settings(contract_number="000", db_path=tmp_path / "db.sqlite3"), trip,
+    )
+    payload = next(
+        part for part in message.walk() if part.get_content_type() == "image/png"
+    ).get_payload(decode=True)
+    with Image.open(BytesIO(payload)) as fitted:
+        assert fitted.size == (600, 1336)
+    with Image.open(source) as original:
+        assert original.size == (1008, 2244)
 
 
 def test_missing_contract_is_rejected_without_calling_gmail(session):

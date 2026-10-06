@@ -19,7 +19,7 @@ de la distance et des adresses, sans le score : une correction de score met à
 jour la même ligne. Les adresses restent dans la base locale et ne sont pas
 recopiées dans le texte du mail. Pour chaque score inférieur à 100, `sync`
 ouvre le détail et enregistre une capture dans `data/screenshots/`. `drafts`
-insère cette capture dans le corps du brouillon.
+insère cette capture dans le corps du brouillon, réduite à la largeur du message.
 
 Le téléphone doit être déverrouillé, le débogage USB autorisé, et YouDrive déjà
 connecté. `adb` est pris dans le `PATH`, sinon dans le SDK Android
