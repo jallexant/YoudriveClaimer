@@ -34,6 +34,22 @@ def remaining_daily_budget(session: Session, settings: Settings, now: datetime) 
     return max(0, settings.daily_claim_limit - count_sent_today(session, now, settings.timezone))
 
 
+def count_created_today(session: Session, now: datetime, timezone: str) -> int:
+    if now.tzinfo is None or now.utcoffset() is None:
+        raise ValueError("Une date doit inclure son fuseau horaire.")
+    zone = ZoneInfo(timezone)
+    today = now.astimezone(zone).date()
+    start = datetime.combine(today, time.min, zone).astimezone(UTC)
+    end = datetime.combine(today + timedelta(days=1), time.min, zone).astimezone(UTC)
+    return session.scalar(
+        select(func.count(Claim.id)).where(Claim.created_at >= start, Claim.created_at < end)
+    ) or 0
+
+
+def remaining_draft_budget(session: Session, settings: Settings, now: datetime) -> int:
+    return max(0, settings.daily_claim_limit - count_created_today(session, now, settings.timezone))
+
+
 @dataclass(frozen=True)
 class Summary:
     trips: int

@@ -1,8 +1,10 @@
 # Recherche technique YouDrive
 
-État au 5 octobre 2026. La collecte retenue est la lecture de l'API Android
-déjà présente dans l'APK extraite, sans téléphone et sans USB. Le journal du
-5 octobre décrit le contrat. Aucune modification distante ni email.
+Collecte en service depuis le 6 octobre 2026 : écran YouDrive lu par ADB USB. L'API Android et l'espace web décrits dans ce journal ne sont plus la collecte.
+
+État au 5 octobre 2026. La collecte alors envisagée était la lecture de l'API Android
+déjà présente dans l'APK extraite, sans téléphone et sans USB. Ce contrat a été
+abandonné après les refus du serveur. Aucune modification distante ni email.
 
 ## État des preuves
 

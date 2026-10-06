@@ -1,7 +1,12 @@
 import logging
+from datetime import UTC, datetime
+
+import pytest
 
 from youdrive.cli.main import main
 from youdrive.logging_config import JsonFormatter
+from youdrive.phone.errors import PhoneError
+from youdrive.phone.screen import PhoneTrip
 
 
 def test_local_commands_empty_database(monkeypatch, tmp_path, capsys):
@@ -16,67 +21,63 @@ def test_local_commands_empty_database(monkeypatch, tmp_path, capsys):
     assert "cli.completed" in output.err
 
 
-def test_sync_stops_on_android_error_without_creating_database(monkeypatch, tmp_path, capsys):
-    from youdrive.api.android import AndroidError
+def test_sync_stops_on_phone_error_without_creating_database(monkeypatch, tmp_path, capsys):
+    def fail(*_args):
+        raise PhoneError("Téléphone USB introuvable.")
 
-    def fail(_settings):
-        raise AndroidError("Session refusée.")
-
-    monkeypatch.setattr("youdrive.cli.main.synchronize", fail)
+    monkeypatch.setattr("youdrive.cli.main.collect_trips", fail)
     monkeypatch.chdir(tmp_path)
     db_path = tmp_path / "must-not-exist.sqlite3"
     monkeypatch.setenv("YOUDRIVE_DB_PATH", str(db_path))
     assert main(["sync"]) == 2
-    assert "Session refusée" in capsys.readouterr().err
+    assert "Téléphone USB introuvable" in capsys.readouterr().err
     assert not db_path.exists()
 
 
-def test_sync_imports_the_android_batch(monkeypatch, tmp_path, capsys):
-    from datetime import UTC, datetime
-
-    from youdrive.api.android import AndroidTrip, SyncBatch
-
-    trip = AndroidTrip(
-        "android:2026-06-01T10:00:00", datetime(2026, 6, 1, 8, tzinfo=UTC),
-        datetime(2026, 6, 1, 8, 30, tzinfo=UTC), 80, 12.5, 1800, [{"kind": "fiction"}], None,
+def test_sync_imports_the_phone_batch(monkeypatch, tmp_path, capsys):
+    trip = PhoneTrip(
+        "phone:abc", datetime(2026, 6, 1, 8, tzinfo=UTC), datetime(2026, 6, 1, 8, 30, tzinfo=UTC),
+        80, 12.5, 1800, "adresse privée", "autre adresse privée",
     )
-    monkeypatch.setattr("youdrive.cli.main.synchronize", lambda _settings: SyncBatch([trip], 1))
+    monkeypatch.setattr("youdrive.cli.main.collect_trips", lambda *_args: [trip])
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("YOUDRIVE_DB_PATH", str(tmp_path / "cli.sqlite3"))
     assert main(["sync"]) == 0
     output = capsys.readouterr().out
     assert "nouveaux : 1" in output
-    assert "liste complète" in output
-    assert "fiction" not in output
+    assert "USB" in output
+    assert "adresse privée" not in output
+    assert "Aucune réclamation envoyée." in output
 
 
-def test_login_command_reports_that_the_password_is_not_stored(monkeypatch, tmp_path, capsys):
-    monkeypatch.setattr("youdrive.cli.main.login", lambda _settings: None)
+def test_drafts_command_reports_creation_without_sending(monkeypatch, tmp_path, capsys):
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("YOUDRIVE_DB_PATH", str(tmp_path / "cli.sqlite3"))
-    assert main(["login"]) == 0
-    assert "mot de passe" in capsys.readouterr().out
+    monkeypatch.setenv("YOUDRIVE_CONTRACT_NUMBER", "000")
+    assert main(["init"]) == 0
+    monkeypatch.setattr(
+        "youdrive.claims.drafts.prepare_drafts", lambda *_args: 1,
+    )
+    assert main(["drafts"]) == 0
+    output = capsys.readouterr().out
+    assert "Brouillons créés : 1." in output
+    assert "Aucun message envoyé." in output
+    assert "000" not in output
 
 
-def test_web_collection_commands_are_gone():
-    import pytest
-    with pytest.raises(SystemExit) as caught:
-        main(["browser-setup"])
-    assert caught.value.code == 2
-
-
-def test_auth_callback_writes_only_the_official_return(monkeypatch, tmp_path, capsys):
+def test_gmail_login_does_not_echo_the_client_path(monkeypatch, tmp_path, capsys):
     monkeypatch.chdir(tmp_path)
-    rejected = main([
-        "auth-callback", "https://evil.example/?code=fiction", "--directory", str(tmp_path),
-    ])
-    assert rejected == 2
-    assert "fiction" not in capsys.readouterr().err
-    accepted = main([
-        "auth-callback", "fr.axa.youdrive://auth?code=fiction", "--directory", str(tmp_path),
-    ])
-    assert accepted == 0
-    assert (tmp_path / "android-login-callback.txt").read_text(encoding="utf-8").endswith("fiction")
+    secret = tmp_path / "secret-client.json"
+    monkeypatch.setenv("YOUDRIVE_GMAIL_CLIENT_FILE", str(secret))
+    assert main(["gmail-login"]) == 2
+    assert "secret-client" not in capsys.readouterr().err
+
+
+def test_removed_commands_are_rejected():
+    for command in ("login", "auth-callback", "browser-setup"):
+        with pytest.raises(SystemExit) as caught:
+            main([command])
+        assert caught.value.code == 2
 
 
 def test_invalid_config_does_not_print_raw_value(monkeypatch, tmp_path, capsys):

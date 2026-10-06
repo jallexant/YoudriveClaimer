@@ -79,4 +79,5 @@ class Claim(Base):
     )
     text: Mapped[str | None] = mapped_column(Text)
     response: Mapped[str | None] = mapped_column(Text)
+    gmail_draft_id: Mapped[str | None] = mapped_column(String)
     trip: Mapped[Trip] = relationship(back_populates="claim")

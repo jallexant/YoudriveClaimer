@@ -5,14 +5,20 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "youdrive-claimer"
 version = "0.1.0"
-description = "Local YouDrive trip and claim tracking, without automatic email sending"
+description = "Local YouDrive trip tracking from the phone screen, with Gmail drafts only"
 readme = "README.md"
 requires-python = ">=3.12"
-dependencies = ["SQLAlchemy>=2.0,<3", "python-dotenv>=1.0,<2", "tzdata>=2025.1"]
+dependencies = [
+    "SQLAlchemy>=2.0,<3",
+    "python-dotenv>=1.0,<2",
+    "tzdata>=2025.1",
+    "google-api-python-client>=2.160,<3",
+    "google-auth-oauthlib>=1.2,<2",
+    "google-auth-httplib2>=0.2,<1",
+]
 
 [project.optional-dependencies]
 dev = ["pytest>=8,<10", "ruff>=0.12,<1"]
-web = ["playwright>=1.50,<2"]
 
 [project.scripts]
 youdrive = "youdrive.cli.main:main"

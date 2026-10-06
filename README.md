@@ -1,25 +1,24 @@
 # YouDrive Claimer
 
-Application locale Windows, Python 3.12+ et SQLite. La collecte lit l'historique
-de trajets par l'API de l'application Android officielle, depuis le PC, sans
-téléphone et sans USB. La connexion s'ouvre dans le navigateur seulement quand
-la session locale n'est plus valable. Aucun email ni accès Gmail.
+Application locale Windows, Python 3.12+ et SQLite. La collecte lit les trajets
+affichés par l'application YouDrive sur le téléphone, branché en USB. Les
+réclamations sont préparées comme brouillons Gmail. Aucun message n'est envoyé.
 
 ## Portée
 
-`sync` demande la liste complète des trajets du contrat, avec les points
-d'intérêt. Cette liste n'a pas de paramètre de page : une réponse qui annonce
-une suite interrompt l'import au lieu d'inventer une pagination. Les lignes
-déjà importées depuis l'espace web (`web-visible:`) restent en place. Elles ne
-sont pas fusionnées avec les trajets Android (`android:`), dont l'identité est
-l'horodatage de départ renvoyé par le serveur.
+`sync` ouvre YouDrive, affiche l'onglet Trajets, lit les cartes visibles et
+fait défiler jusqu'à ce que le même écran revienne. Une carte illisible ou une
+liste qui ne se stabilise pas annule tout l'import. Les lignes déjà en base,
+y compris les anciennes lignes `web-visible:`, restent en place. L'identité
+d'un trajet téléphone est `phone:` plus une empreinte de la date, des heures,
+de la distance et des adresses, sans le score : une correction de score met à
+jour la même ligne. Les adresses restent dans la base locale et ne sont pas
+recopiées dans le mail.
 
-La distance enregistrée est le nombre du champ `distance`, sans conversion :
-l'unité n'est pas indiquée dans le contrat lu. Le premier `sync` réel doit
-être comparé au nombre de trajets du mois affiché dans l'application.
-
-Le mot de passe n'est jamais saisi dans le terminal. Le jeton de
-rafraîchissement reste dans `data/`, hors Git.
+Le téléphone doit être déverrouillé, le débogage USB autorisé, et YouDrive déjà
+connecté. `adb` est pris dans le `PATH`, sinon dans le SDK Android
+(`%LOCALAPPDATA%\Android\Sdk\platform-tools\adb.exe`). `YOUDRIVE_ADB` peut
+indiquer un autre exécutable. Seul l'appareil USB est utilisé (`adb -d`).
 
 ## Installation PowerShell
 
@@ -32,71 +31,68 @@ Copy-Item .env.example .env
 .\.venv\Scripts\python.exe -m youdrive init
 ```
 
-Python 3.14 est disponible sur ce PC. Ne recopiez pas le modèle sur un
-`.env` déjà personnalisé. L'identifiant public de connexion est lu dans
-l'APK déjà extraite, `research-private/apk/base.apk`. Ce dossier reste hors Git.
-Aucun téléphone, ADB ou proxy TLS n'est utilisé.
+Ne recopiez pas le modèle sur un `.env` déjà personnalisé. Le numéro de contrat
+et le fichier client Google restent dans `.env`, hors Git.
 
-## Connexion et synchronisation
+## Synchronisation
 
 ```powershell
-.\.venv\Scripts\python.exe -m youdrive login
 .\.venv\Scripts\python.exe -m youdrive sync
-```
-
-`login` ouvre la page officielle dans le navigateur et enregistre un handler
-utilisateur `fr.axa.youdrive` (HKCU, supprimable dans le registre). `sync`
-renouvelle le jeton ; s'il est refusé, la même connexion est redemandée, puis
-les trajets sont importés. Vous pouvez aussi double-cliquer
-`scripts/Start-YouDrive.cmd`.
-
-```powershell
 .\.venv\Scripts\python.exe -m youdrive trips
 .\.venv\Scripts\python.exe -m youdrive candidates
 .\.venv\Scripts\python.exe -m youdrive status
 ```
 
+Vous pouvez aussi double-cliquer `scripts/Start-YouDrive.cmd`.
+
 - `init` crée les tables sans supprimer les données.
-- `login` enregistre la session sans conserver le mot de passe.
-- `sync` importe la liste Android en une transaction.
+- `sync` importe les cartes de l'écran Trajets en une transaction.
 - `trips` affiche les trajets locaux, les plus anciens d'abord.
-- `candidates` affiche scores connus < 100 sans réclamation existante et quota
-  restant ; aucune réclamation n'est préparée ou envoyée.
-- `status` affiche les compteurs et statuts.
+- `candidates` affiche les scores connus inférieurs à 100 sans réclamation.
+- `status` affiche les compteurs. Le budget d'envoi compte les dates d'envoi ;
+  aucun envoi n'existe.
 
-Les imports répétés actualisent les lignes Android et conservent les
-réclamations. Une réponse invalide, une identité dupliquée ou une liste
-incomplète fait rejeter tout le lot. Les dates naïves sont lues en
-Europe/Paris et stockées en UTC ; les heures ambiguës ou inexistantes au
-changement d'heure sont refusées.
+## Brouillons Gmail
 
-## Configuration et confidentialité
+Créez un client OAuth « Application de bureau » dans Google Cloud, ajoutez
+votre compte comme utilisateur de test, et indiquez le JSON dans
+`YOUDRIVE_GMAIL_CLIENT_FILE`. Le scope demandé est `gmail.compose`. Le jeton
+est enregistré dans `data/`, hors Git.
 
-Variables d'environnement prioritaires sur `.env` :
+```powershell
+.\.venv\Scripts\python.exe -m youdrive gmail-login
+.\.venv\Scripts\python.exe -m youdrive drafts
+```
+
+`drafts` prépare au plus `YOUDRIVE_DAILY_CLAIM_LIMIT` brouillons par jour de
+Paris, les candidats les plus anciens d'abord. Le compteur est la date de
+création de la réclamation locale. `sent_at` reste vide. Le brouillon est créé
+d'abord ; la réclamation n'est enregistrée qu'ensuite. Si Gmail refuse, le
+trajet reste candidat.
+
+Chaque brouillon est adressé à `servicetechniqueyoudrive@directassurance.fr`.
+L'objet reprend `[Formulaire appli] n°` et `YOUDRIVE_CONTRACT_NUMBER`. Le corps
+reprend la demande de précision, la date et l'heure du trajet, puis le score,
+la distance et la durée lus à l'écran. La phrase de motif reste à compléter
+dans Gmail. `YOUDRIVE_MAIL_SIGNATURE` est ajoutée seulement si elle est
+renseignée. Aucun appel d'envoi n'est fait.
+
+## Configuration
 
 | Variable | Défaut | Rôle |
 |---|---|---|
 | `YOUDRIVE_DB_PATH` | `data/youdrive.sqlite3` | SQLite |
-| `YOUDRIVE_DAILY_CLAIM_LIMIT` | `3` | Quota positif |
+| `YOUDRIVE_DAILY_CLAIM_LIMIT` | `3` | Plafond positif de préparations par jour |
 | `YOUDRIVE_TIMEZONE` | `Europe/Paris` | Affichage et jour métier |
 | `YOUDRIVE_LOG_LEVEL` | `INFO` | Logs JSON |
+| `YOUDRIVE_CONTRACT_NUMBER` | vide | Numéro cité dans le brouillon |
+| `YOUDRIVE_MAIL_SIGNATURE` | vide | Signature optionnelle, `\n` pour une nouvelle ligne |
+| `YOUDRIVE_GMAIL_CLIENT_FILE` | vide | JSON du client OAuth |
 
-Les chemins partent du dossier courant. `.env`, `data/` et
-`research-private/` sont exclus de Git. `data/android-session.json` contient
-les jetons et n'est pas chiffré par cette application. Les journaux affichent
-des événements fixes et des compteurs, sans identifiant de contrat, trajet,
-jeton ou mot de passe. `trips` est une sortie locale volontaire.
-
-## Modèle et règles
-
-`Trip` stocke identité, début/fin, score facultatif, distance, durée en
-secondes, événements, positions de départ/arrivée et dates
-d'import/synchronisation. `Claim` lie un trajet unique à un statut
-draft/pending/corrected/rejected/unknown, texte et réponse éventuels. Toute
-réclamation, même brouillon, exclut le trajet des candidats. Le quota compte
-les dates d'envoi dans le jour métier ; les brouillons non envoyés ne le
-consomment pas. Aucun chemin d'envoi n'existe. `create_all` crée les tables
-manquantes ; aucune migration n'est fournie.
+Les chemins partent du dossier courant. `.env`, `data/` et `research-private/`
+sont exclus de Git. `data/gmail-token.json` contient le jeton et n'est pas
+chiffré. Les journaux affichent des événements fixes et des compteurs, sans
+numéro de contrat, trajet ou jeton.
 
 ## Vérification
 
@@ -105,8 +101,7 @@ manquantes ; aucune migration n'est fournie.
 .\.venv\Scripts\python.exe -m ruff check src tests
 ```
 
-Les tests utilisent des JSON fictifs et n'ouvrent ni le réseau, ni le
-navigateur, ni le registre. Le premier contrôle réel est un `login` puis un
-`sync` lancés par le titulaire : le nombre de trajets du mois doit
-correspondre à l'application. Voir
+Les tests n'ouvrent ni le téléphone, ni le réseau, ni Gmail. Le premier contrôle
+réel est un `sync` avec le téléphone branché, puis un `drafts` dont on vérifie
+dans Gmail que le message est un brouillon et n'a pas été envoyé. Voir
 [le dossier de recherche](docs/youdrive-api-research.md).

@@ -9,7 +9,7 @@ if not exist ".venv\Scripts\python.exe" (
     popd
     exit /b 1
 )
-echo Synchronisation YouDrive. Une page de connexion s'ouvre si la session a expire.
+echo Synchronisation YouDrive. Le telephone doit etre branche en USB et deverrouille.
 ".venv\Scripts\python.exe" -m youdrive sync
 popd
 pause

@@ -1,53 +1,29 @@
 import argparse
 import logging
 import sys
+import time
 from datetime import UTC, datetime
-from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from sqlalchemy.exc import SQLAlchemyError
 
-from youdrive.api.android import (
-    AndroidError,
-    accept_callback,
-    login,
-    note_callback_error,
-    synchronize,
-)
+from youdrive.claims.errors import GmailError
 from youdrive.config import Settings
 from youdrive.db.session import initialize_database, open_database
+from youdrive.legacy import remove_legacy_auth_protocol
 from youdrive.logging_config import configure_logging
 from youdrive.models import Trip
-from youdrive.services.sync import import_android_trips
+from youdrive.phone.adb import Adb
+from youdrive.phone.collect import collect_trips
+from youdrive.phone.errors import PhoneError
+from youdrive.services.sync import import_phone_trips
 from youdrive.services.trips import (
     list_candidates,
     list_trips,
     remaining_daily_budget,
+    remaining_draft_budget,
     summarize,
 )
-
-
-def _auth_callback(rest: list[str]) -> int:
-    directory = Path.cwd() / "data"
-    url = None
-    index = 0
-    while index < len(rest):
-        item = rest[index]
-        if item == "--directory" and index + 1 < len(rest):
-            directory = Path(rest[index + 1])
-            index += 2
-            continue
-        cleaned = item.strip().strip("\"'")
-        if "fr.axa.youdrive://" in cleaned:
-            url = cleaned
-        index += 1
-    try:
-        accept_callback(url, directory)
-    except AndroidError as exc:
-        note_callback_error(directory, str(exc))
-        print(str(exc), file=sys.stderr)
-        return 2
-    return 0
 
 
 def print_trips(trips: list[Trip], timezone: str) -> None:
@@ -66,40 +42,48 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Suivi local des trajets et réclamations YouDrive")
     parser.add_argument(
         "command",
-        choices=["init", "login", "auth-callback", "sync", "trips", "candidates", "status"],
+        choices=["init", "sync", "trips", "candidates", "status", "gmail-login", "drafts"],
     )
-    parser.add_argument("callback_url", nargs="?")
-    parser.add_argument("--directory", type=Path)
-    raw = list(sys.argv[1:] if argv is None else argv)
-    if raw and raw[0] == "auth-callback":
-        return _auth_callback(raw[1:])
     args = parser.parse_args(argv)
-    if args.callback_url is not None or args.directory is not None:
-        print("Argument inattendu.", file=sys.stderr)
-        return 2
+    remove_legacy_auth_protocol()
     engine = None
     try:
         settings = Settings.from_env()
         configure_logging(settings.log_level)
-        if args.command == "login":
+        if args.command == "gmail-login":
+            from youdrive.claims.gmail import login
+
             login(settings)
-            print("Connexion enregistrée. Aucun mot de passe n'est conservé.")
+            print("Connexion Gmail enregistrée. Aucun message envoyé.")
             return 0
-        incoming = synchronize(settings) if args.command == "sync" else None
+        incoming = None
+        if args.command == "sync":
+            incoming = collect_trips(Adb(), settings.timezone, time.sleep)
         engine, sessions = open_database(settings.db_path)
         initialize_database(engine)
         with sessions() as session:
             now = datetime.now(UTC)
             if incoming is not None:
-                added, updated = import_android_trips(session, incoming.trips)
+                added, updated = import_phone_trips(session, incoming)
                 session.commit()
-                print(f"Trajets reçus : {len(incoming.trips)} ; nouveaux : {added} ; "
-                      f"actualisés : {updated}.")
-                print(f"Contrats lus : {incoming.policy_count}.")
+                print(
+                    f"Trajets lus : {len(incoming)} ; nouveaux : {added} ; "
+                    f"actualisés : {updated}."
+                )
+                print("Source : écran YouDrive via USB. Défilement stabilisé.")
+                print("Les trajets déjà importés sont conservés. Aucune réclamation envoyée.")
                 print_trips(list_trips(session), settings.timezone)
-                print("Source : application Android, liste complète sans pagination.")
-                print("La distance est le nombre reçu, sans conversion.")
-                print("Les trajets web déjà importés sont conservés. Aucune réclamation envoyée.")
+            elif args.command == "drafts":
+                from youdrive.claims.drafts import prepare_drafts
+                from youdrive.claims.gmail import create_draft
+
+                made = prepare_drafts(
+                    session, settings, now, lambda message: create_draft(settings, message),
+                )
+                left = remaining_draft_budget(session, settings, now)
+                print(f"Brouillons créés : {made}.")
+                print(f"Préparations restantes aujourd'hui : {left}/{settings.daily_claim_limit}.")
+                print("Aucun message envoyé.")
             elif args.command == "init":
                 print("Base SQLite initialisée.")
             elif args.command == "trips":
@@ -126,9 +110,9 @@ def main(argv: list[str] | None = None) -> int:
         logging.getLogger("youdrive").info("cli.completed")
         return 0
     except KeyboardInterrupt:
-        print("Synchronisation arrêtée.")
+        print("Opération arrêtée.")
         return 0
-    except AndroidError as exc:
+    except (PhoneError, GmailError) as exc:
         print(str(exc), file=sys.stderr)
         return 2
     except ValueError as exc:

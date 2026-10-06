@@ -1,1 +1,1 @@
-"""Reserved for local claim preparation after trip retrieval is validated."""
+"""Local claim drafts. Messages are created in Gmail and are not sent."""

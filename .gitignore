@@ -19,3 +19,4 @@ research-private/
 *.pcap
 *.pcapng
 *.log
+*.eml
