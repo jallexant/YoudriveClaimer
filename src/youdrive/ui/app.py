@@ -843,7 +843,7 @@ def _port_is_open(port: int) -> bool:
         return sock.connect_ex(("127.0.0.1", port)) == 0
 
 
-def run_ui() -> int:
+def run_ui(open_browser: bool = True) -> int:
     remove_legacy_auth_protocol()
     try:
         settings = current_settings()
@@ -852,11 +852,14 @@ def run_ui() -> int:
         return 1
     configure_logging(settings.log_level)
     if _port_is_open(PORT):
+        if not open_browser:
+            print(f"Le port {PORT} est déjà utilisé.", file=sys.stderr)
+            return 1
         webbrowser.open(f"http://127.0.0.1:{PORT}/")
         return 0
     ui.run(
         host="127.0.0.1", port=PORT, title="YouDrive Claimer",
         favicon=_FAVICON,
-        reload=False, show=True, language="fr",
+        reload=False, show=open_browser, language="fr",
     )
     return 0

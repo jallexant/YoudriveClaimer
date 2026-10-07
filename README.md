@@ -48,11 +48,17 @@ Double-cliquez `scripts/Ouvrir-YouDrive.cmd`, ou lancez :
 .\.venv\Scripts\python.exe -m youdrive ui
 ```
 
-Le navigateur s'ouvre sur cet ordinateur seulement. À l'ouverture de la session
-Windows, un lanceur dans le dossier Démarrage ouvre la même interface, sans
-console. Fermer l'onglet laisse le serveur en marche jusqu'à la fin de la
-session. `scripts/Installer-Service.ps1` enregistre ce démarrage.
-`scripts/Retirer-Service.ps1` le retire. L'accueil indique la prochaine
+Le navigateur s'ouvre sur cet ordinateur seulement.
+
+`scripts/Installer-Service.ps1` installe le service Windows `YouDriveClaimer`
+avec `docs/nssm.exe` : démarrage automatique avec Windows, compte système, sans
+fenêtre. L'interface est alors sur <http://127.0.0.1:8765>. Le journal est dans
+`data/logs/service.log`. Le compte système ne voit ni le `PATH` ni le dossier
+`.android` de l'utilisateur : le script lui transmet le chemin d'`adb` et la clé
+`adbkey` de la session qui l'installe. `scripts/Retirer-Service.ps1` supprime
+le service. Les deux scripts demandent les droits administrateur.
+
+L'accueil indique la prochaine
 action : brancher le téléphone, lire les trajets, écrire le motif, préparer les
 brouillons. Le motif est enregistré et repris dans le brouillon. Réclamations
 liste ces brouillons, avec la date de préparation. Fermer la fenêtre du lanceur

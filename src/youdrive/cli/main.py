@@ -58,6 +58,10 @@ def main(argv: list[str] | None = None) -> int:
         "--full", action="store_true",
         help="sync : relire toute la liste au lieu de s'arrêter au premier trajet connu",
     )
+    parser.add_argument(
+        "--no-browser", action="store_true",
+        help="ui : démarrer le serveur sans ouvrir le navigateur (service Windows)",
+    )
     args = parser.parse_args(argv)
     if args.command == "mark-claimed" and args.before is None:
         parser.error("mark-claimed demande --before AAAA-MM-JJ")
@@ -69,7 +73,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "ui":
             from youdrive.ui.app import run_ui
 
-            return run_ui()
+            return run_ui(open_browser=not args.no_browser)
         if args.command == "gmail-login":
             from youdrive.claims.gmail import login
 

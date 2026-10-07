@@ -168,9 +168,12 @@ def test_screen_read_waits_with_time_sleep(monkeypatch, tmp_path):
 def test_ui_command_opens_the_screen(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
     called = []
-    monkeypatch.setattr("youdrive.ui.app.run_ui", lambda: called.append("ui") or 0)
+    monkeypatch.setattr(
+        "youdrive.ui.app.run_ui", lambda open_browser: called.append(open_browser) or 0,
+    )
     assert main(["ui"]) == 0
-    assert called == ["ui"]
+    assert main(["ui", "--no-browser"]) == 0
+    assert called == [True, False]
 
 
 def test_port_is_open_sees_a_local_listener():
