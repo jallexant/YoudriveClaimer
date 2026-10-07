@@ -169,12 +169,12 @@ def test_route_labels_ignore_anything_that_is_not_text():
     assert route_labels({"start_label": "Rue du départ", "end_label": 3}) == ("Rue du départ", "")
 
 
-def test_trip_state_uses_a_badge_for_the_claim():
-    assert trip_state(card(1, claim_id=3)) == ("Brouillon", "yd-state-draft")
+def test_trip_state_uses_three_badges():
+    assert trip_state(card(1, claim_id=3)) == ("Réclamé", "yd-state-claimed")
     refused = trip_state(card(2, claim_id=4, claim_status="rejected"))
-    assert refused == ("Refus", "yd-state-rejected")
-    assert trip_state(card(3)) == ("À réclamer", "yd-state-open")
-    assert trip_state(card(4, score=100)) == ("Rien à préparer", "yd-state-clear")
+    assert refused == ("Réclamé", "yd-state-claimed")
+    assert trip_state(card(3)) == ("Non réclamé", "yd-state-open")
+    assert trip_state(card(4, score=100)) == ("Pas de réclamation", "yd-state-clear")
 
 
 def test_listed_claims_lead_with_the_newest_claim_date():

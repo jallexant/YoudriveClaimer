@@ -13,14 +13,6 @@ MONTHS = (
     "septembre", "octobre", "novembre", "décembre",
 )
 
-STATUS_LABELS = {
-    "draft": "Brouillon",
-    "pending": "En attente",
-    "corrected": "Correction",
-    "rejected": "Refus",
-    "unknown": "Résultat inconnu",
-}
-
 
 class Step(StrEnum):
     PHONE = "phone"
@@ -263,22 +255,12 @@ def score_class(score: float | None) -> str:
     return "yd-score-low"
 
 
-_STATE_CLASS = {
-    "draft": "yd-state-draft",
-    "pending": "yd-state-pending",
-    "corrected": "yd-state-corrected",
-    "rejected": "yd-state-rejected",
-    "unknown": "yd-state-unknown",
-}
-
-
 def trip_state(card: TripCard) -> tuple[str, str]:
     if card.claim_status:
-        label = STATUS_LABELS.get(card.claim_status, card.claim_status)
-        return label, _STATE_CLASS.get(card.claim_status, "yd-state-unknown")
+        return "Réclamé", "yd-state-claimed"
     if card.score is not None and card.score < 100:
-        return "À réclamer", "yd-state-open"
-    return "Rien à préparer", "yd-state-clear"
+        return "Non réclamé", "yd-state-open"
+    return "Pas de réclamation", "yd-state-clear"
 
 
 def listed_claims(trips: tuple[TripCard, ...] | list[TripCard]) -> list[TripCard]:

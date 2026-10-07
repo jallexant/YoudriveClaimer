@@ -160,11 +160,7 @@ a:focus-visible, .q-btn:focus-visible { outline: 3px solid #b7a3d9; outline-offs
   font-weight: 750;
   line-height: 1.3;
   }
-.yd-state-draft { background: #efe7ff; color: #4c19a1; }
-.yd-state-pending { background: #fff4d6; color: #8a5a00; }
-.yd-state-corrected { background: #e3f5ec; color: #087c56; }
-.yd-state-rejected { background: #ffe8ea; color: #c51829; }
-.yd-state-unknown { background: #efebfa; color: #4c19a1; }
+.yd-state-claimed { background: #e3f5ec; color: #087c56; }
 .yd-state-open { background: #ffe8ea; color: #c51829; }
 .yd-state-clear { background: #f3f1f7; color: #62677f; }
 .yd-when { font-size: 14px; font-weight: 650; color: #555e77; }
