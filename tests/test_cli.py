@@ -143,6 +143,14 @@ def test_invalid_config_does_not_print_raw_value(monkeypatch, tmp_path, capsys):
     assert "entier positif" in output.err
 
 
+def test_ui_command_opens_the_screen(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    called = []
+    monkeypatch.setattr("youdrive.ui.app.run_ui", lambda: called.append("ui") or 0)
+    assert main(["ui"]) == 0
+    assert called == ["ui"]
+
+
 def test_log_formatter_does_not_include_exception_payload():
     record = logging.LogRecord("youdrive", logging.ERROR, "", 0, "database.failed", (), None)
     record.exc_info = (ValueError, ValueError("fake-secret"), None)

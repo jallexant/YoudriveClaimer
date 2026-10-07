@@ -26,11 +26,51 @@ def mark_claimed_before(session: Session, cutoff: datetime) -> int:
         select(Trip).where(Trip.score < 100, ~Trip.claim.has(), Trip.started_at < cutoff)
     ).all()
     for trip in trips:
-        session.add(Claim(
-            trip=trip, created_at=trip.started_at, status=ClaimStatus.UNKNOWN,
-            text="Réclamation faite hors application.",
-        ))
+        session.add(_outside_claim(trip))
     return len(trips)
+
+
+def mark_trip_handled(session: Session, trip_id: int) -> None:
+    """One trip already handled outside the app. No draft is created."""
+    trip = session.get(Trip, trip_id)
+    if trip is None or trip.claim is not None:
+        raise ValueError("Ce trajet n'est plus à traiter.")
+    if trip.score is None or trip.score >= 100:
+        raise ValueError("Ce trajet n'est pas à réclamer.")
+    session.add(_outside_claim(trip))
+    session.flush()
+
+
+def save_reason(session: Session, trip_id: int, reason: str) -> None:
+    trip = session.get(Trip, trip_id)
+    if trip is None:
+        raise ValueError("Trajet introuvable.")
+    cleaned = reason.strip()
+    if len(cleaned) > 2000:
+        raise ValueError("Le motif est trop long.")
+    trip.reason = cleaned or None
+
+
+def update_claim(session: Session, claim_id: int, status: str, response: str) -> None:
+    """Local follow-up only. Nothing is sent."""
+    claim = session.get(Claim, claim_id)
+    if claim is None:
+        raise ValueError("Réclamation introuvable.")
+    try:
+        claim.status = ClaimStatus(status)
+    except ValueError as exc:
+        raise ValueError("Statut inconnu.") from exc
+    cleaned = response.strip()
+    if len(cleaned) > 4000:
+        raise ValueError("La note est trop longue.")
+    claim.response = cleaned or None
+
+
+def _outside_claim(trip: Trip) -> Claim:
+    return Claim(
+        trip=trip, created_at=trip.started_at, status=ClaimStatus.UNKNOWN,
+        text="Réclamation faite hors application.",
+    )
 
 
 def count_sent_today(session: Session, now: datetime, timezone: str) -> int:

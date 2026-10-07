@@ -221,6 +221,77 @@ def test_create_draft_encodes_the_message_and_has_no_send_call():
     assert not hasattr(service, "send")
 
 
+def test_saved_reason_follows_the_date_and_the_address_stays_out(tmp_path):
+    name = f"{'ab' * 32}.png"
+    folder = tmp_path / "screenshots"
+    folder.mkdir()
+    (folder / name).write_bytes(b"\x89PNG\r\n\x1a\nsecret-image")
+    trip = Trip(
+        youdrive_id="phone:letter", started_at=datetime(2026, 9, 26, 12, 58, tzinfo=UTC),
+        score=72, gps={"screenshot": name, "start_label": "adresse privée"},
+        reason="a < b\nc",
+    )
+    settings = Settings(
+        contract_number="000", mail_signature="Signature locale", db_path=tmp_path / "db.sqlite3",
+    )
+    message, text = build_message(settings, trip)
+    assert text.index("Trajet du 26 Septembre à 14:58.") < text.index("a < b")
+    assert text.index("a < b") < text.index("Signature locale")
+    assert "adresse privée" not in text
+    html = message.get_body(preferencelist=("html",)).get_content()
+    assert "a &lt; b<br>c" in html
+    assert html.index("a &lt; b") < html.index("<img")
+    assert html.index("<img") < html.index("Signature locale")
+    assert "adresse privée" not in html
+
+
+def test_saved_reason_is_copied_and_the_address_stays_out(session):
+    trip = add_trip(session, "phone:one", datetime(2026, 9, 1, tzinfo=UTC))
+    trip.reason = "Défaut de vitesse"
+    trip.gps = {"start_label": "adresse privée"}
+    prepare_drafts(
+        session, Settings(contract_number="000"), datetime(2026, 10, 6, tzinfo=UTC),
+        lambda _message: "draft-1",
+    )
+    text = session.scalar(select(Claim.text))
+    assert "Défaut de vitesse" in text
+    assert "adresse privée" not in text
+
+
+def test_only_ready_reasons_are_prepared_oldest_first(session):
+    now = datetime(2026, 10, 6, 12, tzinfo=UTC)
+    skipped = add_trip(session, "phone:skip", datetime(2026, 9, 1, tzinfo=UTC))
+    skipped.reason = "   "
+    first = add_trip(session, "phone:first", datetime(2026, 9, 2, tzinfo=UTC))
+    first.reason = "Défaut de vitesse"
+    second = add_trip(session, "phone:second", datetime(2026, 9, 3, tzinfo=UTC))
+    second.reason = "Virage lent"
+    made = prepare_drafts(
+        session, Settings(contract_number="000", daily_claim_limit=1), now,
+        lambda _message: "draft-1", with_reason_only=True,
+    )
+    assert made == 1
+    claim = session.scalar(select(Claim))
+    assert claim is not None
+    assert claim.trip_id == first.id
+    assert "Défaut de vitesse" in claim.text
+    assert session.scalar(select(Claim).where(Claim.trip_id == second.id)) is None
+    assert session.scalar(select(Claim).where(Claim.trip_id == skipped.id)) is None
+
+
+def test_existing_trips_table_gains_the_reason_column(tmp_path):
+    engine, _sessions = open_database(tmp_path / "old-trips.sqlite3")
+    with engine.begin() as connection:
+        connection.execute(text(
+            "CREATE TABLE trips (id INTEGER PRIMARY KEY, youdrive_id VARCHAR NOT NULL)"
+        ))
+    initialize_database(engine)
+    with engine.connect() as connection:
+        names = {row[1] for row in connection.execute(text("PRAGMA table_info(trips)"))}
+    engine.dispose()
+    assert "reason" in names
+
+
 def test_existing_claims_table_gains_the_draft_column(tmp_path):
     engine, _sessions = open_database(tmp_path / "old.sqlite3")
     with engine.begin() as connection:

@@ -47,7 +47,7 @@ def main(argv: list[str] | None = None) -> int:
         "command",
         choices=[
             "init", "sync", "trips", "candidates", "status", "gmail-login", "drafts",
-            "mark-claimed",
+            "mark-claimed", "ui",
         ],
     )
     parser.add_argument(
@@ -66,6 +66,10 @@ def main(argv: list[str] | None = None) -> int:
     try:
         settings = Settings.from_env()
         configure_logging(settings.log_level)
+        if args.command == "ui":
+            from youdrive.ui.app import run_ui
+
+            return run_ui()
         if args.command == "gmail-login":
             from youdrive.claims.gmail import login
 

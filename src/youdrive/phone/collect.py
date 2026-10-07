@@ -24,13 +24,24 @@ LAUNCH_ATTEMPTS = 3
 POLLS_PER_LAUNCH = 16
 
 
+def _tell(on_progress: Callable[[str], None] | None, message: str) -> None:
+    if on_progress is not None:
+        on_progress(message)
+
+
 def collect_trips(
     adb: Adb, timezone: str, sleeper: Callable[[float], None],
     screenshot_dir: Path | None = None, known_ids: set[str] | None = None,
+    *, on_progress: Callable[[str], None] | None = None,
 ) -> tuple[list[PhoneTrip], bool]:
     adb.ensure_device()
+    _tell(on_progress, "Téléphone détecté.")
+    _tell(on_progress, "Ouverture de YouDrive.")
+    _tell(on_progress, "L'écran peut mettre un moment à s'afficher.")
     xml = _await_youdrive(adb, timezone, sleeper)
+    _tell(on_progress, "Écran YouDrive affiché.")
     xml = _open_trips(adb, xml, timezone, sleeper)
+    _tell(on_progress, "Liste des trajets affichée.")
     adb.rewind()
     sleeper(0.8)
     xml = adb.dump()
@@ -48,6 +59,10 @@ def collect_trips(
                 reached_known = True
                 break
             fresh.append(card)
+        if screenshot_dir is not None and any(
+            card.score < 100 and card.remote_id not in captured for card in fresh
+        ):
+            _tell(on_progress, "Capture d'un score inférieur à 100.")
         if screenshot_dir is not None:
             xml = _shoot_visible(
                 adb, xml, timezone, screenshot_dir, captured, sleeper,
@@ -55,13 +70,17 @@ def collect_trips(
             )
         for card in fresh:
             seen[card.remote_id] = card
+        _tell(on_progress, f"Trajets lus : {len(seen)}.")
         if reached_known:
+            _tell(on_progress, "Trajet déjà connu atteint.")
             return _finish(seen, captured, screenshot_dir), True
         current = tuple(card.remote_id for card in cards)
         stagnant = stagnant + 1 if previous == current else 0
         if stagnant >= 2:
+            _tell(on_progress, "Fin de la liste.")
             return _finish(seen, captured, screenshot_dir), False
         previous = current
+        _tell(on_progress, "Défilement de la liste.")
         xml = _scroll_with_overlap(adb, xml, set(current), timezone, sleeper)
     raise PhoneError("Liste incomplète ; aucun import effectué.")
 

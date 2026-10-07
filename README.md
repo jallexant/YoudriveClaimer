@@ -40,6 +40,20 @@ Copy-Item .env.example .env
 Ne recopiez pas le modèle sur un `.env` déjà personnalisé. Le numéro de contrat
 et le fichier client Google restent dans `.env`, hors Git.
 
+## Interface
+
+Double-cliquez `scripts/Ouvrir-YouDrive.cmd`, ou lancez :
+
+```powershell
+.\.venv\Scripts\python.exe -m youdrive ui
+```
+
+Le navigateur s'ouvre sur cet ordinateur seulement. L'accueil indique la prochaine
+action : brancher le téléphone, lire les trajets, écrire le motif, préparer les
+brouillons. Le motif est enregistré et repris dans le brouillon. Les réponses se
+notent dans Réclamations. Fermer la fenêtre du lanceur arrête l'interface.
+Aucun message n'est envoyé.
+
 ## Synchronisation
 
 ```powershell

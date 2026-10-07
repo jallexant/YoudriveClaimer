@@ -184,6 +184,22 @@ def test_untappable_low_score_does_not_import(tmp_path):
     assert adb.shots == []
 
 
+def test_progress_counts_trips_without_copying_addresses():
+    screen = hierarchy(node(card(), bounds="[36,400][972,780]"))
+    adb = FakeAdb([screen, screen, screen, screen])
+    notes = []
+    trips, reached = collect_trips(
+        adb, "Europe/Paris", lambda _delay: None, on_progress=notes.append,
+    )
+    assert reached is False
+    assert trips
+    text = "\n".join(notes)
+    assert "Trajets lus : 1." in text
+    assert "Fin de la liste." in text
+    assert "Rue de la Paix" not in text
+    assert "Victor Hugo" not in text
+
+
 def test_unstable_list_is_not_returned(monkeypatch):
     monkeypatch.setattr("youdrive.phone.collect.MAX_SCROLLS", 2)
 

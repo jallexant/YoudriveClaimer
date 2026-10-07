@@ -10,10 +10,16 @@ from youdrive.models import Claim, ClaimStatus
 from youdrive.services.trips import list_candidates, remaining_draft_budget
 
 
-def prepare_drafts(session: Session, settings: Settings, now: datetime, create) -> int:
+def prepare_drafts(
+    session: Session, settings: Settings, now: datetime, create, *, with_reason_only: bool = False,
+) -> int:
+    """Oldest candidates first. A saved reason is included; an empty one is not invented."""
     require_contract(settings)
     budget = remaining_draft_budget(session, settings, now)
-    chosen = list_candidates(session)[:budget]
+    chosen = list_candidates(session)
+    if with_reason_only:
+        chosen = [trip for trip in chosen if isinstance(trip.reason, str) and trip.reason.strip()]
+    chosen = chosen[:budget]
     created = 0
     for trip in chosen:
         message, text = build_message(settings, trip)

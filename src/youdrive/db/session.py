@@ -23,7 +23,12 @@ def open_database(path: Path) -> tuple[Engine, sessionmaker[Session]]:
 def initialize_database(engine: Engine) -> None:
     Base.metadata.create_all(engine)
     with engine.begin() as connection:
-        rows = connection.execute(text("PRAGMA table_info(claims)")).all()
-        names = {row[1] for row in rows}
-        if names and "gmail_draft_id" not in names:
-            connection.execute(text("ALTER TABLE claims ADD COLUMN gmail_draft_id VARCHAR"))
+        _ensure_column(connection, "claims", "gmail_draft_id", "VARCHAR")
+        _ensure_column(connection, "trips", "reason", "TEXT")
+
+
+def _ensure_column(connection, table: str, column: str, definition: str) -> None:
+    rows = connection.execute(text(f"PRAGMA table_info({table})")).all()
+    names = {row[1] for row in rows}
+    if names and column not in names:
+        connection.execute(text(f"ALTER TABLE {table} ADD COLUMN {column} {definition}"))

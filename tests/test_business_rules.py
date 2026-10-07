@@ -1,16 +1,21 @@
+import os
 from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
 from sqlalchemy.exc import IntegrityError, StatementError
 
-from youdrive.config import Settings
+from youdrive.config import Settings, save_preferences
 from youdrive.models import Claim, ClaimStatus, Trip
 from youdrive.services.trips import (
     count_sent_today,
     list_candidates,
+    mark_trip_handled,
     remaining_daily_budget,
+    remaining_draft_budget,
+    save_reason,
     summarize,
+    update_claim,
 )
 
 
@@ -124,6 +129,93 @@ def test_database_rejects_invalid_trip_values(session, kwargs):
 def test_invalid_settings(kwargs):
     with pytest.raises(ValueError):
         Settings(**kwargs)
+
+
+def test_reason_is_kept_and_blank_clears_it(session):
+    trip = add_trip(session, "phone:reason", datetime(2026, 9, 1, tzinfo=UTC))
+    save_reason(session, trip.id, "  Défaut de vitesse  ")
+    session.commit()
+    assert trip.reason == "Défaut de vitesse"
+    save_reason(session, trip.id, " \n ")
+    session.commit()
+    assert trip.reason is None
+
+
+def test_reason_too_long_is_rejected(session):
+    trip = add_trip(session, "phone:long", datetime(2026, 9, 1, tzinfo=UTC))
+    with pytest.raises(ValueError, match="trop long"):
+        save_reason(session, trip.id, "a" * 2001)
+    assert trip.reason is None
+
+
+def test_marking_one_trip_does_not_draft_or_use_today_budget(session):
+    now = datetime(2026, 10, 6, 12, tzinfo=UTC)
+    first = add_trip(session, "phone:old", datetime(2026, 9, 1, tzinfo=UTC))
+    second = add_trip(session, "phone:new", datetime(2026, 9, 2, tzinfo=UTC))
+    mark_trip_handled(session, first.id)
+    session.commit()
+    assert first.claim.status == ClaimStatus.UNKNOWN
+    assert first.claim.gmail_draft_id is None
+    assert first.claim.sent_at is None
+    assert [trip.id for trip in list_candidates(session)] == [second.id]
+    assert remaining_draft_budget(session, Settings(), now) == 3
+
+
+def test_perfect_score_cannot_be_marked_handled(session):
+    trip = add_trip(session, "phone:perfect", datetime(2026, 9, 1, tzinfo=UTC), score=100)
+    with pytest.raises(ValueError, match="pas à réclamer"):
+        mark_trip_handled(session, trip.id)
+    assert trip.claim is None
+
+
+def test_claim_follow_up_stays_local(session):
+    trip = add_trip(session, "phone:follow", datetime(2026, 9, 1, tzinfo=UTC))
+    claim = Claim(trip_id=trip.id, status=ClaimStatus.DRAFT, gmail_draft_id="draft-1")
+    session.add(claim)
+    session.commit()
+    update_claim(session, claim.id, "corrected", "Score revu")
+    session.commit()
+    assert claim.status == ClaimStatus.CORRECTED
+    assert claim.response == "Score revu"
+    assert claim.sent_at is None
+    assert claim.gmail_draft_id == "draft-1"
+    update_claim(session, claim.id, "pending", "  ")
+    session.commit()
+    assert claim.status == ClaimStatus.PENDING
+    assert claim.response is None
+    with pytest.raises(ValueError, match="Statut"):
+        update_claim(session, claim.id, "sent", "note")
+    assert claim.status == ClaimStatus.PENDING
+
+
+def test_screen_preferences_roundtrip_without_dropping_other_keys(tmp_path):
+    env = tmp_path / ".env"
+    env.write_text("YOUDRIVE_DB_PATH=data/youdrive.sqlite3\n", encoding="utf-8")
+    save_preferences(env, "000", "Jérémie\nMobile", 3, "client.json")
+    raw = env.read_text(encoding="utf-8")
+    assert "YOUDRIVE_DB_PATH=data/youdrive.sqlite3" in raw
+    assert "YOUDRIVE_MAIL_SIGNATURE" in raw
+    before = dict(os.environ)
+    try:
+        for key in list(os.environ):
+            if key.startswith("YOUDRIVE_"):
+                del os.environ[key]
+        settings = Settings.from_env(env)
+        assert settings.contract_number == "000"
+        assert settings.mail_signature == "Jérémie\nMobile"
+        assert settings.daily_claim_limit == 3
+        assert settings.gmail_client_file == Path("client.json")
+    finally:
+        os.environ.clear()
+        os.environ.update(before)
+
+
+def test_invalid_contract_is_not_written(tmp_path):
+    env = tmp_path / ".env"
+    env.write_text("YOUDRIVE_CONTRACT_NUMBER=000\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="invalide"):
+        save_preferences(env, "a b", "", 3, "")
+    assert "a b" not in env.read_text(encoding="utf-8")
 
 
 def test_process_environment_overrides_dotenv(monkeypatch, tmp_path):

@@ -32,7 +32,7 @@ def require_contract(settings: Settings) -> str:
 
 def build_message(settings: Settings, trip: Trip) -> tuple[EmailMessage, str]:
     contract = require_contract(settings)
-    capture = _screenshot_path(settings, trip)
+    capture = screenshot_path(settings, trip)
     text = _plain(settings, trip, contract)
     message = EmailMessage()
     message["To"] = CLAIM_TO
@@ -51,7 +51,7 @@ def build_message(settings: Settings, trip: Trip) -> tuple[EmailMessage, str]:
     return message, text
 
 
-def _screenshot_path(settings: Settings, trip: Trip) -> Path | None:
+def screenshot_path(settings: Settings, trip: Trip) -> Path | None:
     raw = trip.gps.get("screenshot") if isinstance(trip.gps, dict) else None
     if not isinstance(raw, str) or _SCREENSHOT.fullmatch(raw) is None:
         return None
@@ -93,7 +93,8 @@ def _png_size(data: bytes) -> tuple[int, int] | None:
 
 def _html(settings: Settings, trip: Trip, contract: str, image_width: int) -> str:
     paragraphs = [
-        f"<p>{escape(paragraph)}</p>" for paragraph in _paragraphs(settings, trip, contract)
+        f"<p>{escape(paragraph).replace(chr(10), '<br>')}</p>"
+        for paragraph in _paragraphs(settings, trip, contract)
     ]
     image = (
         f'<p><img src="cid:{_IMAGE_CID}" alt="Détail du trajet" width="{image_width}" '
@@ -109,10 +110,14 @@ def _html(settings: Settings, trip: Trip, contract: str, image_width: int) -> st
 def _paragraphs(settings: Settings, trip: Trip, contract: str) -> list[str]:
     local = trip.started_at.astimezone(ZoneInfo(settings.timezone))
     when = f"{local.day} {_MONTHS[local.month - 1].capitalize()} à {local:%H:%M}"
-    return [
+    paragraphs = [
         f"Mon numéro de contrat : {contract}",
         "Bonjour,",
         "Veuillez compléter votre demande en précisant la date et l’heure du trajet "
         "concerné par votre demande",
         f"Trajet du {when}.",
     ]
+    reason = trip.reason.strip() if isinstance(trip.reason, str) else ""
+    if reason:
+        paragraphs.append(reason)
+    return paragraphs

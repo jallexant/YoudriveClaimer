@@ -1,9 +1,10 @@
 import os
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from dotenv import load_dotenv
+from dotenv import load_dotenv, set_key
 
 
 @dataclass(frozen=True)
@@ -45,3 +46,33 @@ class Settings:
             mail_signature=os.getenv("YOUDRIVE_MAIL_SIGNATURE", "").replace("\\n", "\n"),
             gmail_client_file=Path(client) if client else None,
         )
+
+
+_CONTRACT = re.compile(r"[0-9A-Za-z-]{1,32}")
+
+
+def save_preferences(
+    env_file: Path, contract_number: str, mail_signature: str,
+    daily_claim_limit: int, gmail_client_file: str,
+) -> None:
+    """Write the four fields edited from the local screen. Other keys stay in the file."""
+    contract_number = contract_number.strip()
+    if contract_number and _CONTRACT.fullmatch(contract_number) is None:
+        raise ValueError("Numéro de contrat invalide.")
+    mail_signature = mail_signature.replace("\r\n", "\n")
+    client = gmail_client_file.strip()
+    Settings(
+        daily_claim_limit=daily_claim_limit,
+        contract_number=contract_number,
+        mail_signature=mail_signature,
+        gmail_client_file=Path(client) if client else None,
+    )
+    env_file.parent.mkdir(parents=True, exist_ok=True)
+    if not env_file.exists():
+        env_file.write_text("", encoding="utf-8")
+    path = str(env_file)
+    stored_signature = mail_signature.replace("\n", "\\n")
+    set_key(path, "YOUDRIVE_CONTRACT_NUMBER", contract_number, quote_mode="always")
+    set_key(path, "YOUDRIVE_MAIL_SIGNATURE", stored_signature, quote_mode="always")
+    set_key(path, "YOUDRIVE_DAILY_CLAIM_LIMIT", str(daily_claim_limit), quote_mode="never")
+    set_key(path, "YOUDRIVE_GMAIL_CLIENT_FILE", client, quote_mode="always")

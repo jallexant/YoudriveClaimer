@@ -51,6 +51,7 @@ class Trip(Base):
     duration_seconds: Mapped[int | None] = mapped_column(Integer)
     events: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
     gps: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    reason: Mapped[str | None] = mapped_column(Text)
     imported_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utc_now)
     last_synced_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
     claim: Mapped["Claim | None"] = relationship(back_populates="trip", uselist=False)
