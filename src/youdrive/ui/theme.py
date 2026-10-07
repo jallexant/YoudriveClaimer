@@ -187,12 +187,34 @@ a:focus-visible, .q-btn:focus-visible { outline: 3px solid #b7a3d9; outline-offs
   }
 .yd-shot { width: 100%;
   max-height: 240px;
-  object-fit: contain;
-  object-position: top;
   background: #f5f4f9;
   border-radius: 8px;
   }
+.yd-shot .q-img__image { object-fit: cover !important;
+  object-position: center top !important;
+  }
+.yd-shot-card { height: 420px; max-height: 420px; }
+.yd-shot-open { cursor: zoom-in; }
 .yd-shot-large { max-height: 420px; }
+.yd-dialog-shot { width: min(22rem, 92vw);
+  max-height: 92vh;
+  overflow: auto;
+  }
+.yd-shot-head { position: sticky;
+  top: 0;
+  z-index: 1;
+  width: 100%;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: nowrap;
+  background: white;
+  }
+.yd-shot-full { width: 100%;
+  height: auto;
+  display: block;
+  border-radius: 8px;
+  background: #f5f4f9;
+  }
 .yd-notice { width: 100%;
   box-sizing: border-box;
   align-items: center;

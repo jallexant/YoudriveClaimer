@@ -203,6 +203,18 @@ def paint_score(score: float | None) -> None:
             ui.label("/100").classes("yd-score-scale")
 
 
+def show_shot(name: str) -> None:
+    dialog = ui.dialog()
+    with dialog, ui.card().classes("yd-dialog yd-dialog-shot").props("flat"):
+        with ui.row().classes("yd-shot-head"):
+            ui.label("Capture du trajet").classes("yd-title")
+            ui.button("Fermer", on_click=dialog.close).props("flat no-caps")
+        ui.element("img").props(f'src="/captures/{name}" alt="Capture du trajet"').classes(
+            "yd-shot-full",
+        )
+    dialog.open()
+
+
 def show_letter(title: str, body: str, screenshot: str | None, note: str | None) -> None:
     dialog = ui.dialog()
     with dialog, ui.card().classes("yd-dialog").props("flat"):
@@ -622,6 +634,16 @@ def page_trips() -> None:
                         route = route_line(card.start_label, card.end_label)
                         if route:
                             ui.label(route).classes("yd-route")
+                        if card.screenshot:
+                            shot = card.screenshot
+                            ui.image(f"/captures/{shot}").classes(
+                                "yd-shot yd-shot-card yd-shot-open",
+                            ).props(
+                                'role="button" tabindex="0" '
+                                'aria-label="Agrandir la capture du trajet"',
+                            ).on("click", lambda _event, shot=shot: show_shot(shot)).on(
+                                "keydown.enter", lambda _event, shot=shot: show_shot(shot),
+                            )
                         ui.label(label).classes(kind)
 
     draw()
