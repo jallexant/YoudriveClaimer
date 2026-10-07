@@ -29,18 +29,17 @@ from youdrive.ui.actions import (
     mark_before,
     phone_status,
     remember_reason,
-    save_claim,
     sync_phone,
     write_preferences,
 )
 from youdrive.ui.present import (
-    STATUS_LABELS,
     HomeView,
     NextStep,
     Snapshot,
     TripCard,
     candidate_cards,
     chip_texts,
+    claim_line,
     describe_drafts,
     describe_sync,
     format_day,
@@ -49,6 +48,7 @@ from youdrive.ui.present import (
     format_score,
     format_when,
     home_view,
+    listed_claims,
     next_step,
     route_line,
     score_class,
@@ -627,7 +627,11 @@ def page_trips() -> None:
                     label, kind = trip_state(card)
                     with ui.card().classes("yd-card").props("flat"):
                         with ui.row().classes("yd-card-top"):
-                            ui.label(format_when(card.started_at, data.timezone)).classes("yd-when")
+                            with ui.column().classes("yd-card-id"):
+                                ui.label(format_when(card.started_at, data.timezone)).classes(
+                                    "yd-when",
+                                )
+                                ui.label(label).classes(f"yd-state {kind}")
                             paint_score(card.score)
                         distance = format_distance(card.distance_km)
                         ui.label(f"{distance} · {format_duration(card.duration_seconds)}")
@@ -644,7 +648,6 @@ def page_trips() -> None:
                             ).on("click", lambda _event, shot=shot: show_shot(shot)).on(
                                 "keydown.enter", lambda _event, shot=shot: show_shot(shot),
                             )
-                        ui.label(label).classes(kind)
 
     draw()
 
@@ -671,17 +674,20 @@ def paint_claims(draw, data: Snapshot | None) -> None:
             paint_wait()
             watch_until_idle(draw)
             return
-        page_heading("Mes réclamations", "Le statut et la note restent sur cet ordinateur.")
+        page_heading(
+            "Mes réclamations",
+            "Les réclamations préparées sur cet ordinateur, les plus récentes d'abord.",
+        )
         if data is None:
             return
-        claims = [card for card in reversed(data.trips) if card.claim_id is not None]
+        claims = listed_claims(data.trips)
         if not claims:
             with ui.column().classes("yd-empty"):
                 ui.icon("drafts").classes("text-primary text-3xl")
                 ui.label("Aucune réclamation pour l'instant.").classes("yd-lead")
-        with ui.element("div").classes("yd-card-grid"):
+        with ui.element("div").classes("yd-claim-list"):
             for card in claims:
-                paint_claim(card, data.timezone, draw)
+                paint_claim(card, data.timezone)
         ui.label("Déjà réclamés avant une date").classes("yd-section")
         ui.label(
             "Les scores inférieurs à 100, sans réclamation, commencés avant cette date, "
@@ -721,47 +727,26 @@ def paint_claims(draw, data: Snapshot | None) -> None:
         ui.button("Marquer ces trajets", on_click=ask_mark).props("flat no-caps")
 
 
-def paint_claim(card: TripCard, timezone: str, draw) -> None:
-    with ui.card().classes("yd-card").props("flat"):
+def paint_claim(card: TripCard, timezone: str) -> None:
+    with ui.element("article").classes("yd-claim"):
         with ui.row().classes("yd-card-top"):
-            ui.label(format_when(card.started_at, timezone)).classes("yd-when")
+            ui.label(claim_line(card, timezone)).classes("yd-when")
             paint_score(card.score)
-        status = ui.select(STATUS_LABELS, value=card.claim_status, label="Statut").props("outlined")
-        note = ui.textarea(
-            "Réponse de l'assurance", value=card.claim_response,
-        ).props("outlined autogrow")
-        with ui.row():
-            def store(card=card, status=status, note=note) -> None:
-                save_one(card, status, note, draw)
-
-            ui.button("Enregistrer", on_click=store).props("unelevated no-caps").classes(
-                "yd-button",
-            )
-            ui.button(
-                "Voir le texte",
-                on_click=lambda card=card: show_letter(
-                    "Texte enregistré",
-                    card.claim_text or "Aucun texte enregistré.",
-                    card.screenshot,
-                    "Ce texte est celui enregistré avec la réclamation.",
-                ),
-            ).props("flat no-caps")
-
-
-def save_one(card: TripCard, status, note, draw) -> None:
-    if card.claim_id is None or not status.value:
-        workspace.error = "Statut inconnu."
-        workspace.message = ""
-        draw()
-        return
-    try:
-        save_claim(card.claim_id, str(status.value), note.value or "")
-    except (SQLAlchemyError, OSError, ValueError) as exc:
-        show_error(exc)
-    else:
-        workspace.error = ""
-        workspace.message = "Réclamation enregistrée. Aucun message envoyé."
-    draw()
+        ui.label(f"Trajet du {format_when(card.started_at, timezone)}").classes("yd-hint")
+        distance = format_distance(card.distance_km)
+        ui.label(f"{distance} · {format_duration(card.duration_seconds)}")
+        route = route_line(card.start_label, card.end_label)
+        if route:
+            ui.label(route).classes("yd-route")
+        ui.button(
+            "Voir le texte",
+            on_click=lambda card=card: show_letter(
+                "Texte enregistré",
+                card.claim_text or "Aucun texte enregistré.",
+                card.screenshot,
+                "Ce texte est celui enregistré avec la réclamation.",
+            ),
+        ).props("flat no-caps")
 
 
 @ui.page("/reglages")

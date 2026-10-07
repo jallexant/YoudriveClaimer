@@ -46,7 +46,7 @@ class TripCard:
     screenshot: str | None
     claim_id: int | None
     claim_status: str | None
-    claim_response: str
+    claim_at: datetime | None
     claim_text: str
 
 
@@ -263,12 +263,38 @@ def score_class(score: float | None) -> str:
     return "yd-score-low"
 
 
+_STATE_CLASS = {
+    "draft": "yd-state-draft",
+    "pending": "yd-state-pending",
+    "corrected": "yd-state-corrected",
+    "rejected": "yd-state-rejected",
+    "unknown": "yd-state-unknown",
+}
+
+
 def trip_state(card: TripCard) -> tuple[str, str]:
     if card.claim_status:
-        return STATUS_LABELS.get(card.claim_status, card.claim_status), "yd-hint"
+        label = STATUS_LABELS.get(card.claim_status, card.claim_status)
+        return label, _STATE_CLASS.get(card.claim_status, "yd-state-unknown")
     if card.score is not None and card.score < 100:
-        return "À réclamer", "yd-score-low"
-    return "Rien à préparer", "yd-hint"
+        return "À réclamer", "yd-state-open"
+    return "Rien à préparer", "yd-state-clear"
+
+
+def listed_claims(trips: tuple[TripCard, ...] | list[TripCard]) -> list[TripCard]:
+    """Newest prepared claim first. Claims without a date follow, newest trip first."""
+    claimed = [trip for trip in trips if trip.claim_id is not None]
+    dated = [trip for trip in claimed if trip.claim_at is not None]
+    undated = [trip for trip in claimed if trip.claim_at is None]
+    dated.sort(key=lambda trip: (trip.claim_at, trip.id), reverse=True)
+    undated.sort(key=lambda trip: (trip.started_at, trip.id), reverse=True)
+    return dated + undated
+
+
+def claim_line(card: TripCard, timezone: str) -> str:
+    if card.claim_at is None:
+        return "Déjà réclamée"
+    return f"Réclamée le {format_when(card.claim_at, timezone)}"
 
 
 def wait_copy(lines: list[str]) -> tuple[str, str]:

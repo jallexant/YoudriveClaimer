@@ -8,14 +8,17 @@ from youdrive.ui.present import (
     TripCard,
     candidate_cards,
     chip_texts,
+    claim_line,
     describe_drafts,
     describe_sync,
     format_distance,
     format_duration,
     format_when,
+    listed_claims,
     next_step,
     route_labels,
     selectable_for_drafts,
+    trip_state,
     wait_copy,
 )
 
@@ -30,13 +33,19 @@ def view(**overrides) -> HomeView:
     return HomeView(**base)
 
 
-def card(identifier: int, score: float | None = 80, reason: str = "", claim_id: int | None = None):
+def card(
+    identifier: int, score: float | None = 80, reason: str = "",
+    claim_id: int | None = None, claim_status: str | None = None,
+    claim_at: datetime | None = None,
+):
+    if claim_id is not None and claim_status is None:
+        claim_status = "draft"
     return TripCard(
         id=identifier, started_at=datetime(2026, 9, identifier, tzinfo=UTC),
         score=score, distance_km=8, duration_seconds=23 * 60,
         start_label="départ", end_label="arrivée", reason=reason, screenshot=None,
-        claim_id=claim_id, claim_status="draft" if claim_id else None,
-        claim_response="", claim_text="",
+        claim_id=claim_id, claim_status=claim_status,
+        claim_at=claim_at, claim_text="",
     )
 
 
@@ -158,3 +167,20 @@ def test_wait_copy_names_the_step_and_keeps_the_trip_count():
 def test_route_labels_ignore_anything_that_is_not_text():
     assert route_labels(None) == ("", "")
     assert route_labels({"start_label": "Rue du départ", "end_label": 3}) == ("Rue du départ", "")
+
+
+def test_trip_state_uses_a_badge_for_the_claim():
+    assert trip_state(card(1, claim_id=3)) == ("Brouillon", "yd-state-draft")
+    refused = trip_state(card(2, claim_id=4, claim_status="rejected"))
+    assert refused == ("Refus", "yd-state-rejected")
+    assert trip_state(card(3)) == ("À réclamer", "yd-state-open")
+    assert trip_state(card(4, score=100)) == ("Rien à préparer", "yd-state-clear")
+
+
+def test_listed_claims_lead_with_the_newest_claim_date():
+    older = card(1, claim_id=1, claim_at=datetime(2026, 9, 2, tzinfo=UTC))
+    newer = card(2, claim_id=2, claim_at=datetime(2026, 10, 1, tzinfo=UTC))
+    outside = card(3, claim_id=3, claim_status="unknown")
+    assert [item.id for item in listed_claims([older, outside, newer])] == [2, 1, 3]
+    assert claim_line(newer, "Europe/Paris") == "Réclamée le 1 octobre 2026, 02:00"
+    assert claim_line(outside, "Europe/Paris") == "Déjà réclamée"

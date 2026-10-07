@@ -50,8 +50,9 @@ Double-cliquez `scripts/Ouvrir-YouDrive.cmd`, ou lancez :
 
 Le navigateur s'ouvre sur cet ordinateur seulement. L'accueil indique la prochaine
 action : brancher le téléphone, lire les trajets, écrire le motif, préparer les
-brouillons. Le motif est enregistré et repris dans le brouillon. Les réponses se
-notent dans Réclamations. Fermer la fenêtre du lanceur arrête l'interface.
+brouillons. Le motif est enregistré et repris dans le brouillon. Réclamations
+liste ces brouillons, avec la date de préparation. Fermer la fenêtre du lanceur
+arrête l'interface.
 Aucun message n'est envoyé.
 
 ## Synchronisation

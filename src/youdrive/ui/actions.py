@@ -17,7 +17,7 @@ from youdrive.claims.gmail import create_draft, login, token_path
 from youdrive.claims.letters import require_contract, screenshot_path
 from youdrive.config import Settings, save_preferences
 from youdrive.db.session import initialize_database, open_database
-from youdrive.models import Trip
+from youdrive.models import Claim, ClaimStatus, Trip
 from youdrive.phone.adb import Adb
 from youdrive.phone.collect import collect_trips
 from youdrive.phone.errors import PhoneError
@@ -28,7 +28,6 @@ from youdrive.services.trips import (
     mark_trip_handled,
     remaining_draft_budget,
     save_reason,
-    update_claim,
 )
 from youdrive.ui.present import Snapshot, TripCard, route_labels
 
@@ -84,12 +83,6 @@ def remember_reason(trip_id: int, reason: str) -> None:
 def handle_trip(trip_id: int) -> None:
     with session_scope() as (_settings, session):
         mark_trip_handled(session, trip_id)
-        session.commit()
-
-
-def save_claim(claim_id: int, status: str, response: str) -> None:
-    with session_scope() as (_settings, session):
-        update_claim(session, claim_id, status, response)
         session.commit()
 
 
@@ -156,6 +149,12 @@ def _contract_ok(settings: Settings) -> bool:
     return True
 
 
+def _claim_at(claim: Claim | None) -> datetime | None:
+    if claim is None or claim.status is ClaimStatus.UNKNOWN:
+        return None
+    return claim.sent_at or claim.created_at
+
+
 def _card(settings: Settings, trip: Trip) -> TripCard:
     start, end = route_labels(trip.gps)
     shot = screenshot_path(settings, trip)
@@ -172,6 +171,6 @@ def _card(settings: Settings, trip: Trip) -> TripCard:
         screenshot=shot.name if shot is not None else None,
         claim_id=None if claim is None else claim.id,
         claim_status=None if claim is None else claim.status.value,
-        claim_response="" if claim is None else (claim.response or ""),
+        claim_at=_claim_at(claim),
         claim_text="" if claim is None else (claim.text or ""),
     )
