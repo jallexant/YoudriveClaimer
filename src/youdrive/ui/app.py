@@ -54,6 +54,7 @@ from youdrive.ui.present import (
     score_class,
     selectable_for_drafts,
     trip_state,
+    wait_copy,
 )
 from youdrive.ui.theme import install_theme, page_heading, shell
 
@@ -125,9 +126,24 @@ def show_error(exc: Exception) -> None:
 
 def paint_notices() -> None:
     if workspace.error:
-        ui.label(workspace.error).classes("yd-alert")
+        _notice(workspace.error, "yd-alert")
     elif workspace.message:
-        ui.label(workspace.message).classes("yd-success")
+        _notice(workspace.message, "yd-success")
+
+
+def _notice(text: str, kind: str) -> None:
+    row = ui.row().classes(f"yd-notice {kind}")
+    with row:
+        ui.label(text).classes("yd-notice-text")
+
+        def close() -> None:
+            workspace.error = ""
+            workspace.message = ""
+            row.delete()
+
+        ui.button(icon="close", on_click=close).props(
+            "flat round dense aria-label=Fermer",
+        ).classes("yd-notice-close")
 
 
 def paint_chips(view: HomeView) -> None:
@@ -148,18 +164,18 @@ def paint_chips(view: HomeView) -> None:
 
 
 def paint_wait() -> None:
-    ui.label("Un instant.").classes("yd-title")
-    ui.linear_progress().props("indeterminate").style("width: 100%")
-    box = ui.column()
+    with ui.column().classes("yd-wait"):
+        title = ui.label("Un instant.").classes("yd-title")
+        detail = ui.label("Cela peut prendre un moment.").classes("yd-lead")
+        ui.linear_progress(show_value=False, size="8px").props("indeterminate")
     generation = workspace.generation
 
-    def pump(generation: int = generation, box=box) -> None:
+    def pump(generation: int = generation, title=title, detail=detail) -> None:
         if generation != workspace.generation:
             return
-        box.clear()
-        with box:
-            for line in workspace.lines()[-6:]:
-                ui.label(line).classes("yd-muted")
+        heading, sentence = wait_copy(workspace.lines())
+        title.set_text(heading)
+        detail.set_text(sentence)
 
     pump()
     ui.timer(0.4, pump)

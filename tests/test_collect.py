@@ -184,6 +184,19 @@ def test_untappable_low_score_does_not_import(tmp_path):
     assert adb.shots == []
 
 
+def test_slow_open_says_the_screen_is_still_loading():
+    screen = hierarchy(node(card(), bounds="[36,400][972,780]"))
+    adb = FakeAdb([screen, screen, screen, screen], [False, False, False, False, True])
+    notes = []
+    trips, reached = collect_trips(
+        adb, "Europe/Paris", lambda _delay: None, on_progress=notes.append,
+    )
+    assert reached is False
+    assert trips
+    assert "L'écran YouDrive se charge." in notes
+    assert "Rue de la Paix" not in "\n".join(notes)
+
+
 def test_progress_counts_trips_without_copying_addresses():
     screen = hierarchy(node(card(), bounds="[36,400][972,780]"))
     adb = FakeAdb([screen, screen, screen, screen])
@@ -195,6 +208,7 @@ def test_progress_counts_trips_without_copying_addresses():
     assert trips
     text = "\n".join(notes)
     assert "Trajets lus : 1." in text
+    assert "Retour en haut de la liste." in text
     assert "Fin de la liste." in text
     assert "Rue de la Paix" not in text
     assert "Victor Hugo" not in text

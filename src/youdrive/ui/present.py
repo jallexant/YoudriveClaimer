@@ -1,9 +1,12 @@
 """Screen decisions. No phone, no network, no window."""
 
+import re
 from dataclasses import dataclass
 from datetime import date, datetime
 from enum import StrEnum
 from zoneinfo import ZoneInfo
+
+_READ_COUNT = re.compile(r"Trajets lus : (\d+)\.")
 
 MONTHS = (
     "janvier", "février", "mars", "avril", "mai", "juin", "juillet", "août",
@@ -268,16 +271,115 @@ def trip_state(card: TripCard) -> tuple[str, str]:
     return "Rien à préparer", "yd-hint"
 
 
-def describe_sync(read: int, added: int, updated: int, shots: int, reached_known: bool) -> str:
-    end = (
-        "Arrêt au premier trajet déjà en base."
-        if reached_known else "Fin de la liste atteinte."
-    )
-    return (
-        f"Trajets lus : {read}. Nouveaux : {added}. "
-        f"Actualisés : {updated}. Captures : {shots}. {end} "
-        "Aucun message envoyé."
-    )
+def wait_copy(lines: list[str]) -> tuple[str, str]:
+    """Headline and sentence while a local operation is running."""
+    latest = lines[-1] if lines else ""
+    count = _latest_read_count(lines)
+    if latest.startswith("Trajets lus"):
+        return _count_title(count or 0), "La liste défile, des plus récents vers les plus anciens."
+    if latest.startswith("Capture"):
+        detail = "Le détail du trajet est ouvert sur le téléphone."
+        if count is not None:
+            detail = f"{_count_title(count)}. {detail}"
+        return "Capture d'un score inférieur à 100", detail
+    if latest.startswith("Retour en haut"):
+        return (
+            "Retour en haut de la liste",
+            "Les plus récents sont lus en premier. Cela peut prendre un moment.",
+        )
+    if latest.startswith("Retour à la liste"):
+        detail = "La lecture reprend après la capture."
+        if count is not None:
+            detail = f"{_count_title(count)}. {detail}"
+        return "Retour à la liste", detail
+    if latest.startswith("Trajet déjà connu"):
+        if count:
+            return _count_title(count), (
+                "Un trajet déjà enregistré est atteint. Les plus anciens ne sont pas relus."
+            )
+        return (
+            "Aucun nouveau trajet",
+            "Le trajet affiché est déjà enregistré. Les plus anciens ne sont pas relus.",
+        )
+    if latest.startswith("Fin de la liste"):
+        title = _count_title(count) if count is not None else "Fin de la liste"
+        return title, "Toute la liste a été lue."
+    if latest.startswith("Enregistrement"):
+        title = _count_title(count) if count is not None else "Enregistrement"
+        return title, "Écriture sur cet ordinateur. Aucun message n'est envoyé."
+    if latest.startswith("Téléphone détecté"):
+        return "Téléphone détecté", "YouDrive va s'ouvrir. Laissez l'écran déverrouillé."
+    if latest.startswith("Ouverture de YouDrive"):
+        return "Ouverture de YouDrive", "L'écran peut mettre un moment à s'afficher."
+    if latest.startswith("L'écran"):
+        return (
+            "Ouverture de YouDrive",
+            "L'écran se charge encore. Laissez le téléphone déverrouillé.",
+        )
+    if latest.startswith("YouDrive met"):
+        return (
+            "YouDrive met du temps à s'afficher",
+            "Nouvelle tentative d'ouverture. Laissez le téléphone déverrouillé.",
+        )
+    if latest.startswith("Écran YouDrive"):
+        return "YouDrive est ouvert", "Affichage de la liste des trajets."
+    if latest.startswith("Liste des trajets"):
+        return "Liste des trajets affichée", "Retour en haut, puis lecture des plus récents."
+    if latest.startswith("Lecture en cours"):
+        return "Lecture des trajets", "Le téléphone reste déverrouillé. Aucun message n'est envoyé."
+    if latest.startswith("Connexion Gmail"):
+        return "Connexion Gmail", "Une fenêtre du navigateur s'ouvre. Aucun message n'est envoyé."
+    if latest.startswith("Préparation"):
+        return "Préparation des brouillons", "Aucun message n'est envoyé."
+    if not latest:
+        return "Un instant.", "Cela peut prendre un moment."
+    return latest.rstrip("."), "Cela peut prendre un moment."
+
+
+def _latest_read_count(lines: list[str]) -> int | None:
+    found = None
+    for line in lines:
+        match = _READ_COUNT.search(line)
+        if match:
+            found = int(match.group(1))
+    return found
+
+
+def _count_title(count: int) -> str:
+    if count == 0:
+        return "Aucun trajet lu"
+    if count == 1:
+        return "1 trajet lu"
+    return f"{count} trajets lus"
+
+
+def describe_sync(
+    _read: int, added: int, updated: int, shots: int, reached_known: bool,
+) -> str:
+    if added == 0 and updated == 0:
+        if reached_known:
+            return "Aucun nouveau trajet. Le plus récent est déjà enregistré."
+        return "Aucun nouveau trajet. Toute la liste a été relue."
+    if added and updated:
+        body = (
+            f"1 nouveau trajet et {updated} mis à jour."
+            if added == 1 else f"{added} nouveaux trajets et {updated} mis à jour."
+        )
+    elif added == 1:
+        body = "1 nouveau trajet."
+    elif added:
+        body = f"{added} nouveaux trajets."
+    elif updated == 1:
+        body = "1 trajet mis à jour."
+    else:
+        body = f"{updated} trajets mis à jour."
+    if shots == 1:
+        body = body[:-1] + ", avec 1 capture de détail."
+    elif shots:
+        body = body[:-1] + f", avec {shots} captures de détail."
+    if reached_known:
+        return f"{body} Le suivant était déjà enregistré."
+    return body
 
 
 def describe_drafts(made: int, left: int, limit: int) -> str:

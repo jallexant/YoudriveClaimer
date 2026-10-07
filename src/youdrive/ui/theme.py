@@ -127,6 +127,8 @@ a:focus-visible, .q-btn:focus-visible { outline: 3px solid #b7a3d9; outline-offs
   }
 .yd-button:hover { filter: brightness(1.08); }
 .yd-hero .yd-button { margin-top: 6px; }
+.yd-wait { flex: 1; width: 100%; min-width: 0; gap: 8px; }
+.yd-wait .q-linear-progress { width: 100%; margin-top: 6px; }
 .yd-secondary { gap: 12px; flex-wrap: wrap; }
 .yd-card-grid { display: grid !important;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -191,13 +193,19 @@ a:focus-visible, .q-btn:focus-visible { outline: 3px solid #b7a3d9; outline-offs
   border-radius: 8px;
   }
 .yd-shot-large { max-height: 420px; }
-.yd-alert, .yd-success { width: 100%;
+.yd-notice { width: 100%;
   box-sizing: border-box;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: nowrap;
+  gap: 12px;
   background: white;
   border: 1px solid #e3dfed;
   border-radius: 10px;
-  padding: 14px 18px;
+  padding: 10px 8px 10px 18px;
   }
+.yd-notice-text { flex: 1; min-width: 0; line-height: 1.45; }
+.yd-notice-close.q-btn { color: var(--yd-muted) !important; min-height: 36px; }
 .yd-alert { border-left: 4px solid #f71b29; }
 .yd-success { border-left: 4px solid #00ac73; }
 .yd-empty { width: 100%;

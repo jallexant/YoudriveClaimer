@@ -132,6 +132,7 @@ def sync_phone(
         Adb(), settings.timezone, sleep,
         settings.db_path.parent / "screenshots", known, on_progress=on_progress,
     )
+    on_progress("Enregistrement des trajets sur cet ordinateur.")
     with session_scope(settings) as (_settings, session):
         added, updated = import_phone_trips(session, incoming)
         session.commit()

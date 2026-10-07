@@ -162,7 +162,7 @@ def test_screen_read_waits_with_time_sleep(monkeypatch, tmp_path):
     assert sync_phone(False, lines.append) == (0, 0, 0, 0, True)
     assert received["sleeper"] is time.sleep
     assert received["known"] == set()
-    assert lines == ["Lecture."]
+    assert lines == ["Lecture.", "Enregistrement des trajets sur cet ordinateur."]
 
 
 def test_ui_command_opens_the_screen(monkeypatch, tmp_path):

@@ -16,6 +16,7 @@ from youdrive.ui.present import (
     next_step,
     route_labels,
     selectable_for_drafts,
+    wait_copy,
 )
 
 
@@ -121,13 +122,37 @@ def test_formats_use_paris_time_without_inventing_a_distance():
 def test_sync_and_draft_summaries_do_not_carry_an_address():
     sync = describe_sync(4, 1, 2, 1, True)
     done = describe_sync(4, 1, 2, 0, False)
+    same = describe_sync(0, 0, 0, 0, True)
     drafts = describe_drafts(1, 2, 3)
-    assert "Arrêt au premier trajet déjà en base." in sync
-    assert "Fin de la liste atteinte." in done
+    assert sync == (
+        "1 nouveau trajet et 2 mis à jour, avec 1 capture de détail. "
+        "Le suivant était déjà enregistré."
+    )
+    assert done == "1 nouveau trajet et 2 mis à jour."
+    assert same == "Aucun nouveau trajet. Le plus récent est déjà enregistré."
     assert "1 brouillon créé" in drafts
     assert "adresse" not in sync
-    assert "Aucun message envoyé." in sync
     assert "Aucun message envoyé." in drafts
+
+
+def test_wait_copy_names_the_step_and_keeps_the_trip_count():
+    assert wait_copy([]) == ("Un instant.", "Cela peut prendre un moment.")
+    assert wait_copy(["Lecture en cours."])[0] == "Lecture des trajets"
+    assert wait_copy(["Retour en haut de la liste."])[0] == "Retour en haut de la liste"
+    title, detail = wait_copy(["Trajets lus : 1.", "Capture d'un score inférieur à 100."])
+    assert title == "Capture d'un score inférieur à 100"
+    assert detail.startswith("1 trajet lu.")
+    assert "Rue" not in detail
+    title, detail = wait_copy(["Trajets lus : 4.", "Trajet déjà connu atteint."])
+    assert title == "4 trajets lus"
+    assert "déjà enregistré" in detail
+    assert wait_copy(["Trajets lus : 0.", "Trajet déjà connu atteint."])[0] == (
+        "Aucun nouveau trajet"
+    )
+    assert wait_copy(["Trajets lus : 2.", "Fin de la liste."]) == (
+        "2 trajets lus", "Toute la liste a été lue.",
+    )
+    assert wait_copy(["Connexion Gmail en cours."])[0] == "Connexion Gmail"
 
 
 def test_route_labels_ignore_anything_that_is_not_text():

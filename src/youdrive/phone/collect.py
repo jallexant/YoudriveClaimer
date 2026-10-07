@@ -37,11 +37,11 @@ def collect_trips(
     adb.ensure_device()
     _tell(on_progress, "Téléphone détecté.")
     _tell(on_progress, "Ouverture de YouDrive.")
-    _tell(on_progress, "L'écran peut mettre un moment à s'afficher.")
-    xml = _await_youdrive(adb, timezone, sleeper)
+    xml = _await_youdrive(adb, timezone, sleeper, on_progress)
     _tell(on_progress, "Écran YouDrive affiché.")
     xml = _open_trips(adb, xml, timezone, sleeper)
     _tell(on_progress, "Liste des trajets affichée.")
+    _tell(on_progress, "Retour en haut de la liste.")
     adb.rewind()
     sleeper(0.8)
     xml = adb.dump()
@@ -59,18 +59,21 @@ def collect_trips(
                 reached_known = True
                 break
             fresh.append(card)
-        if screenshot_dir is not None and any(
+        for card in fresh:
+            seen[card.remote_id] = card
+        _tell(on_progress, f"Trajets lus : {len(seen)}.")
+        capturing = screenshot_dir is not None and any(
             card.score < 100 and card.remote_id not in captured for card in fresh
-        ):
+        )
+        if capturing:
             _tell(on_progress, "Capture d'un score inférieur à 100.")
         if screenshot_dir is not None:
             xml = _shoot_visible(
                 adb, xml, timezone, screenshot_dir, captured, sleeper,
-                {card.remote_id for card in fresh},
+                {card.remote_id for card in fresh}, on_progress,
             )
-        for card in fresh:
-            seen[card.remote_id] = card
-        _tell(on_progress, f"Trajets lus : {len(seen)}.")
+        if capturing:
+            _tell(on_progress, f"Trajets lus : {len(seen)}.")
         if reached_known:
             _tell(on_progress, "Trajet déjà connu atteint.")
             return _finish(seen, captured, screenshot_dir), True
@@ -80,7 +83,6 @@ def collect_trips(
             _tell(on_progress, "Fin de la liste.")
             return _finish(seen, captured, screenshot_dir), False
         previous = current
-        _tell(on_progress, "Défilement de la liste.")
         xml = _scroll_with_overlap(adb, xml, set(current), timezone, sleeper)
     raise PhoneError("Liste incomplète ; aucun import effectué.")
 
@@ -116,6 +118,7 @@ def _finish(
 def _shoot_visible(
     adb: Adb, xml: str, timezone: str, directory: Path, captured: set[str],
     sleeper: Callable[[float], None], allowed: set[str],
+    on_progress: Callable[[str], None] | None = None,
 ) -> str:
     for _ in range(8):
         targets = [
@@ -141,6 +144,7 @@ def _shoot_visible(
         captured.add(trip.remote_id)
         adb.back()
         sleeper(0.8)
+        _tell(on_progress, "Retour à la liste des trajets.")
         xml = _return_to_anchor(adb, adb.dump(), trip.remote_id, timezone, sleeper)
     return xml
 
@@ -183,12 +187,17 @@ def _return_to_anchor(
 
 def _await_youdrive(
     adb: Adb, timezone: str, sleeper: Callable[[float], None],
+    on_progress: Callable[[str], None] | None = None,
 ) -> str:
-    for _attempt in range(LAUNCH_ATTEMPTS):
+    for attempt in range(LAUNCH_ATTEMPTS):
+        if attempt:
+            _tell(on_progress, "YouDrive met du temps à s'afficher.")
         adb.launch()
         sleeper(2.0)
         seen_running = False
-        for _poll in range(POLLS_PER_LAUNCH):
+        for poll in range(POLLS_PER_LAUNCH):
+            if poll and poll % 4 == 0:
+                _tell(on_progress, "L'écran YouDrive se charge.")
             running = adb.app_running()
             if running:
                 seen_running = True
