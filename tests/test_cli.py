@@ -1,4 +1,5 @@
 import logging
+import time
 from datetime import UTC, datetime
 
 import pytest
@@ -141,6 +142,27 @@ def test_invalid_config_does_not_print_raw_value(monkeypatch, tmp_path, capsys):
     output = capsys.readouterr()
     assert "fake-sensitive-value" not in output.err
     assert "entier positif" in output.err
+
+
+def test_screen_read_waits_with_time_sleep(monkeypatch, tmp_path):
+    received = {}
+
+    def collect(_adb, _tz, sleeper, _shots, known, *, on_progress):
+        received["sleeper"] = sleeper
+        received["known"] = known
+        on_progress("Lecture.")
+        return [], True
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("YOUDRIVE_DB_PATH", str(tmp_path / "ui.sqlite3"))
+    monkeypatch.setattr("youdrive.ui.actions.collect_trips", collect)
+    from youdrive.ui.actions import sync_phone
+
+    lines = []
+    assert sync_phone(False, lines.append) == (0, 0, 0, 0, True)
+    assert received["sleeper"] is time.sleep
+    assert received["known"] == set()
+    assert lines == ["Lecture."]
 
 
 def test_ui_command_opens_the_screen(monkeypatch, tmp_path):

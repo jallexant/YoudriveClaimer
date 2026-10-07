@@ -5,6 +5,7 @@ from collections.abc import Callable
 from contextlib import contextmanager
 from datetime import UTC, date, datetime, time
 from pathlib import Path
+from time import sleep
 from zoneinfo import ZoneInfo
 
 from dotenv import load_dotenv
@@ -128,7 +129,7 @@ def sync_phone(
                 select(Trip.youdrive_id).where(Trip.youdrive_id.like("phone:%"))
             ))
     incoming, reached = collect_trips(
-        Adb(), settings.timezone, time.sleep,
+        Adb(), settings.timezone, sleep,
         settings.db_path.parent / "screenshots", known, on_progress=on_progress,
     )
     with session_scope(settings) as (_settings, session):
