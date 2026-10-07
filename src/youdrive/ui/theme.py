@@ -24,19 +24,18 @@ body, .nicegui-content { background: #f5f4f9 !important;
   gap: 24px;
   }
 .yd-banner-text { gap: 12px; align-items: center; }
-.yd-brand { color: var(--yd-purple);
+.yd-brand { display: flex !important;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0;
+  color: var(--yd-purple);
   font-size: 30px;
   font-weight: 800;
   letter-spacing: -1.3px;
   line-height: 1.1;
+  white-space: nowrap;
   }
-.yd-local { font-size: 12px;
-  background: #efebfa;
-  color: var(--yd-purple);
-  border-radius: 20px;
-  padding: 5px 12px;
-  font-weight: 600;
-  }
+.yd-brand-product { color: var(--yd-ink); font-weight: 650; }
 .yd-aside { color: var(--yd-ink); font-size: 14px; font-weight: 700; }
 .yd-nav { max-width: 1168px;
   margin: 0;
@@ -297,9 +296,8 @@ a:focus-visible, .q-btn:focus-visible { outline: 3px solid #b7a3d9; outline-offs
 @media (max-width: 480px) {
   .yd-banner { padding: 18px 16px 0; gap: 10px; }
   .yd-brand { font-size: 25px; }
-  .yd-banner-text { gap: 6px; flex-wrap: wrap; }
+  .yd-banner-text { gap: 6px; }
   .yd-aside { font-size: 11px; }
-  .yd-local { font-size: 10px; padding: 4px 8px; }
   .yd-nav { padding: 0; gap: 18px; }
   .yd-nav a { font-size: 12px; }
   .yd-page { padding: 24px 16px; gap: 16px; }
@@ -320,14 +318,15 @@ def install_theme() -> None:
         positive="#087c56", negative="#c51829",
     )
     ui.dark_mode(False)
-    ui.page_title("YouDrive · Réclamations")
+    ui.page_title("YouDrive Claimer")
 
 
 def paint_banner(active: str) -> None:
     with ui.row().classes("yd-banner"):
         with ui.row().classes("yd-banner-text"):
-            ui.label("YouDrive").classes("yd-brand")
-            ui.label("Outil local").classes("yd-local")
+            with ui.element("div").classes("yd-brand"):
+                ui.label("YouDrive")
+                ui.label("Claimer").classes("yd-brand-product")
         paint_nav(active)
         ui.label("Direct Assurance").classes("yd-aside")
 

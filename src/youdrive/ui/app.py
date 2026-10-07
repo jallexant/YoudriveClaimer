@@ -7,6 +7,7 @@ import threading
 from dataclasses import dataclass, replace
 from datetime import date
 from functools import partial
+from pathlib import Path
 
 from fastapi import HTTPException
 from fastapi.responses import FileResponse
@@ -60,6 +61,7 @@ from youdrive.ui.theme import install_theme, page_heading, shell
 
 PORT = 8765
 _SHOT = re.compile(r"[0-9a-f]{64}\.png")
+_FAVICON = Path(__file__).with_name("favicon.ico")
 
 
 class Workspace:
@@ -842,7 +844,8 @@ def run_ui() -> int:
         return 1
     configure_logging(settings.log_level)
     ui.run(
-        host="127.0.0.1", port=PORT, title="YouDrive",
+        host="127.0.0.1", port=PORT, title="YouDrive Claimer",
+        favicon=_FAVICON,
         reload=False, show=True, language="fr",
     )
     return 0
