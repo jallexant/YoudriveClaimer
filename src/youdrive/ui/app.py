@@ -2,8 +2,10 @@
 
 import logging
 import re
+import socket
 import sys
 import threading
+import webbrowser
 from dataclasses import dataclass, replace
 from datetime import date
 from functools import partial
@@ -835,6 +837,12 @@ def paint_settings(draw) -> None:
             ui.button("Connecter Gmail", on_click=connect).props("flat no-caps")
 
 
+def _port_is_open(port: int) -> bool:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.settimeout(0.3)
+        return sock.connect_ex(("127.0.0.1", port)) == 0
+
+
 def run_ui() -> int:
     remove_legacy_auth_protocol()
     try:
@@ -843,6 +851,9 @@ def run_ui() -> int:
         print(f"Configuration invalide : {exc}", file=sys.stderr)
         return 1
     configure_logging(settings.log_level)
+    if _port_is_open(PORT):
+        webbrowser.open(f"http://127.0.0.1:{PORT}/")
+        return 0
     ui.run(
         host="127.0.0.1", port=PORT, title="YouDrive Claimer",
         favicon=_FAVICON,

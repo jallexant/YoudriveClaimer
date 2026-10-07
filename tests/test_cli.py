@@ -173,6 +173,22 @@ def test_ui_command_opens_the_screen(monkeypatch, tmp_path):
     assert called == ["ui"]
 
 
+def test_port_is_open_sees_a_local_listener():
+    import socket
+
+    from youdrive.ui.app import _port_is_open
+
+    listener = socket.socket()
+    listener.bind(("127.0.0.1", 0))
+    port = listener.getsockname()[1]
+    listener.listen(1)
+    try:
+        assert _port_is_open(port)
+    finally:
+        listener.close()
+    assert not _port_is_open(port)
+
+
 def test_log_formatter_does_not_include_exception_payload():
     record = logging.LogRecord("youdrive", logging.ERROR, "", 0, "database.failed", (), None)
     record.exc_info = (ValueError, ValueError("fake-secret"), None)

@@ -48,11 +48,15 @@ Double-cliquez `scripts/Ouvrir-YouDrive.cmd`, ou lancez :
 .\.venv\Scripts\python.exe -m youdrive ui
 ```
 
-Le navigateur s'ouvre sur cet ordinateur seulement. L'accueil indique la prochaine
+Le navigateur s'ouvre sur cet ordinateur seulement. À l'ouverture de la session
+Windows, un lanceur dans le dossier Démarrage ouvre la même interface, sans
+console. Fermer l'onglet laisse le serveur en marche jusqu'à la fin de la
+session. `scripts/Installer-Service.ps1` enregistre ce démarrage.
+`scripts/Retirer-Service.ps1` le retire. L'accueil indique la prochaine
 action : brancher le téléphone, lire les trajets, écrire le motif, préparer les
 brouillons. Le motif est enregistré et repris dans le brouillon. Réclamations
 liste ces brouillons, avec la date de préparation. Fermer la fenêtre du lanceur
-arrête l'interface.
+manuel arrête l'interface seulement si c'est elle qui l'a démarrée.
 Aucun message n'est envoyé.
 
 ## Synchronisation

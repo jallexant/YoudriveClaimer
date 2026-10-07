@@ -9,7 +9,8 @@ if not exist ".venv\Scripts\python.exe" (
     popd
     exit /b 1
 )
-echo Interface YouDrive. Le navigateur va s'ouvrir. Fermez cette fenetre pour quitter.
+echo YouDrive Claimer. Le navigateur va s'ouvrir.
+echo Si cette fenetre reste ouverte, la fermer arrete l'interface.
 ".venv\Scripts\python.exe" -m youdrive ui
 if errorlevel 1 pause
 popd
