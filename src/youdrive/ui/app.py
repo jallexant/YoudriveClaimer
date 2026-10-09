@@ -25,6 +25,7 @@ from youdrive.models import Trip
 from youdrive.phone.errors import PhoneError
 from youdrive.ui.actions import (
     connect_gmail,
+    create_one_draft,
     create_ready_drafts,
     current_settings,
     handle_trip,
@@ -62,6 +63,7 @@ from youdrive.ui.present import (
 from youdrive.ui.theme import install_theme, page_heading, shell
 
 PORT = 8765
+GMAIL_DRAFTS = "https://mail.google.com/mail/u/0/#drafts"
 _SHOT = re.compile(r"[0-9a-f]{64}\.png")
 _FAVICON = Path(__file__).with_name("favicon.ico")
 
@@ -72,6 +74,7 @@ class Workspace:
         self.progress: list[str] = []
         self.message = ""
         self.error = ""
+        self.follow: tuple[str, str] | None = None
         self.phone_ok = False
         self.phone_known = False
         self.phone_message = ""
@@ -126,23 +129,34 @@ def show_error(exc: Exception) -> None:
         logging.getLogger("youdrive").error("ui.failed")
         workspace.error = "L'opération a échoué."
     workspace.message = ""
+    workspace.follow = None
+
+
+def note(message: str, *, follow: tuple[str, str] | None = None) -> None:
+    workspace.error = ""
+    workspace.message = message
+    workspace.follow = follow
 
 
 def paint_notices() -> None:
     if workspace.error:
-        _notice(workspace.error, "yd-alert")
+        _notice(workspace.error, "yd-alert", None)
     elif workspace.message:
-        _notice(workspace.message, "yd-success")
+        _notice(workspace.message, "yd-success", workspace.follow)
 
 
-def _notice(text: str, kind: str) -> None:
+def _notice(text: str, kind: str, follow: tuple[str, str] | None) -> None:
     row = ui.row().classes(f"yd-notice {kind}")
     with row:
         ui.label(text).classes("yd-notice-text")
+        if follow:
+            label, url = follow
+            ui.link(label, url, new_tab=True).classes("yd-notice-link")
 
         def close() -> None:
             workspace.error = ""
             workspace.message = ""
+            workspace.follow = None
             row.delete()
 
         ui.button(icon="close", on_click=close).props(
@@ -207,6 +221,22 @@ def paint_score(score: float | None) -> None:
             ui.label("/100").classes("yd-score-scale")
 
 
+def paint_capture_button(name: str) -> None:
+    ui.button(
+        "Voir le trajet en entier",
+        icon="zoom_in",
+        on_click=lambda shot=name: show_shot(shot),
+    ).props("flat dense no-caps").classes("yd-shot-link")
+
+
+def open_capture(image, name: str) -> None:
+    image.classes("yd-shot-open").props(
+        'role="button" tabindex="0" aria-label="Voir le trajet en entier"',
+    ).on("click", lambda _event, shot=name: show_shot(shot)).on(
+        "keydown.enter", lambda _event, shot=name: show_shot(shot),
+    )
+
+
 def show_shot(name: str) -> None:
     dialog = ui.dialog()
     with dialog, ui.card().classes("yd-dialog yd-dialog-shot").props("flat"):
@@ -225,7 +255,9 @@ def show_letter(title: str, body: str, screenshot: str | None, note: str | None)
         ui.label(title).classes("yd-title")
         ui.label(body).classes("yd-pre")
         if screenshot:
-            ui.image(f"/captures/{screenshot}").classes("yd-shot yd-shot-large")
+            image = ui.image(f"/captures/{screenshot}").classes("yd-shot yd-shot-large")
+            open_capture(image, screenshot)
+            paint_capture_button(screenshot)
         if note:
             ui.label(note).classes("yd-hint")
         ui.button("Fermer", on_click=dialog.close).props("flat no-caps")
@@ -277,6 +309,7 @@ async def run_job(label: str, work, redraw) -> JobResult:
     workspace.busy = True
     workspace.error = ""
     workspace.message = ""
+    workspace.follow = None
     workspace.reset_progress()
     workspace.push(label)
     redraw()
@@ -303,6 +336,7 @@ class HomePage:
         self.fields: dict[int, object] = {}
         self.chips = None
         self.hero = None
+        self.prepare_slot = None
         self._data: Snapshot | None = None
         self.step: NextStep | None = None
         self.root = ui.column().classes("yd-shell")
@@ -324,6 +358,7 @@ class HomePage:
         self.fields.clear()
         self.chips = None
         self.hero = None
+        self.prepare_slot = None
         self._data = load_screen()
         self.root.clear()
         with self.root:
@@ -387,7 +422,7 @@ class HomePage:
         if workspace.busy:
             return
         if self.fields:
-            self.fill_status()
+            self.refresh_actions()
             return
         self.draw()
 
@@ -408,9 +443,13 @@ class HomePage:
             return
         candidates = candidate_cards(self._data.trips)
         if candidates:
-            with ui.column().classes("yd-section-head"):
-                ui.label("À réclamer").classes("yd-section")
-                ui.label("Les plus anciens d'abord.").classes("yd-hint")
+            with ui.row().classes("yd-section-bar"):
+                with ui.column().classes("yd-section-head"):
+                    ui.label("À réclamer").classes("yd-section")
+                    ui.label("Les plus anciens d'abord.").classes("yd-hint")
+                self.prepare_slot = ui.row().classes("yd-prepare")
+                with self.prepare_slot:
+                    self.paint_prepare_action()
             with ui.element("div").classes("yd-card-grid"):
                 for card in candidates:
                     self.paint_candidate(card)
@@ -434,29 +473,78 @@ class HomePage:
             if route:
                 ui.label(route).classes("yd-route")
             if card.screenshot:
-                ui.image(f"/captures/{card.screenshot}").classes("yd-shot")
+                shot = card.screenshot
+                image = ui.image(f"/captures/{shot}").classes("yd-shot")
+                open_capture(image, shot)
+                paint_capture_button(shot)
             field = ui.textarea(label="Motif", value=card.reason).props("outlined autogrow")
             self.fields[card.id] = field
             ui.label("Ajouté sous la date du trajet, dans le brouillon.").classes("yd-hint")
             field.on_value_change(
                 lambda _event, trip_id=card.id, field=field: self.keep(trip_id, field),
             )
-            with ui.row().classes("yd-card-actions"):
+            with ui.column().classes("yd-card-actions"):
                 ui.button(
-                    "Voir le mail",
-                    on_click=lambda trip_id=card.id, field=field: self.preview(trip_id, field),
-                ).props("flat no-caps")
-                ui.button(
-                    "Déjà traité",
-                    on_click=lambda trip_id=card.id: self.ask_done(trip_id),
-                ).props("flat no-caps")
+                    "Préparer le brouillon",
+                    on_click=lambda trip_id=card.id, field=field: self.ask_one(trip_id, field),
+                ).props("unelevated no-caps").classes("yd-button")
+                with ui.row().classes("yd-card-links"):
+                    ui.button(
+                        "Voir le mail",
+                        on_click=lambda trip_id=card.id, field=field: self.preview(trip_id, field),
+                    ).props("flat no-caps")
+                    ui.button(
+                        "Déjà traité",
+                        on_click=lambda trip_id=card.id: self.ask_done(trip_id),
+                    ).props("flat no-caps")
 
     def keep(self, trip_id: int, field) -> None:
+        cleaned = (field.value or "").strip()
+        previous = self._stored_reason(trip_id)
         try:
             remember_reason(trip_id, field.value or "")
         except ValueError as exc:
             workspace.error = str(exc)
             ui.notify(str(exc), type="negative")
+            return
+        if cleaned == previous:
+            return
+        self._store_reason(trip_id, cleaned)
+        if bool(cleaned) == bool(previous):
+            return
+        self.refresh_actions()
+
+    def _stored_reason(self, trip_id: int) -> str:
+        if self._data is None:
+            return ""
+        found = next((card for card in self._data.trips if card.id == trip_id), None)
+        if found is None:
+            return ""
+        return found.reason.strip()
+
+    def _store_reason(self, trip_id: int, reason: str) -> None:
+        if self._data is None:
+            return
+        self._data = replace(
+            self._data,
+            trips=tuple(
+                replace(card, reason=reason) if card.id == trip_id else card
+                for card in self._data.trips
+            ),
+        )
+
+    def refresh_actions(self) -> None:
+        """Recompute the banner from the motifs already on screen."""
+        if workspace.busy or self._data is None or self.chips is None or self.hero is None:
+            return
+        previous = (self.step.action, self.step.button) if self.step is not None else None
+        self.fill_status()
+        current = (self.step.action, self.step.button) if self.step is not None else None
+        if previous == current or self.prepare_slot is None:
+            return
+        self.prepare_slot.clear()
+        with self.prepare_slot:
+            self.paint_prepare_action()
 
     def flush(self) -> None:
         for trip_id, field in list(self.fields.items()):
@@ -502,8 +590,7 @@ class HomePage:
         except (SQLAlchemyError, OSError, ValueError) as exc:
             show_error(exc)
         else:
-            workspace.error = ""
-            workspace.message = "Trajet marqué comme déjà réclamé. Aucun brouillon créé."
+            note("Trajet marqué comme déjà réclamé. Aucun brouillon créé.")
         self.draw()
 
     def ask_drafts(self) -> None:
@@ -518,6 +605,7 @@ class HomePage:
         if not selected:
             workspace.error = "Écrivez le motif des trajets à préparer."
             workspace.message = ""
+            workspace.follow = None
             self.draw()
             return
         lines = []
@@ -556,7 +644,7 @@ class HomePage:
             workspace.phone_ok = True
             workspace.phone_message = ""
             read, added, updated, shots, reached = job.result
-            workspace.message = describe_sync(read, added, updated, shots, reached)
+            note(describe_sync(read, added, updated, shots, reached))
         self.draw()
 
     async def begin_gmail(self) -> None:
@@ -568,7 +656,79 @@ class HomePage:
         if job.skipped:
             return
         if job.error is None:
-            workspace.message = "Connexion Gmail enregistrée. Aucun message envoyé."
+            note("Connexion Gmail enregistrée. Aucun message envoyé.")
+        self.draw()
+
+    def paint_prepare_action(self) -> None:
+        step = self.step
+        if step is None:
+            return
+        if step.action == "drafts" and step.button:
+            ui.button(step.button, on_click=self.ask_drafts).props(
+                "unelevated no-caps",
+            ).classes("yd-button")
+        elif step.action == "gmail":
+            ui.button("Connecter Gmail", on_click=self.begin_gmail).props(
+                "unelevated no-caps",
+            ).classes("yd-button")
+        elif step.action == "settings":
+            ui.button(
+                "Ouvrir les réglages", on_click=lambda: ui.navigate.to("/reglages"),
+            ).props("unelevated no-caps").classes("yd-button")
+        elif step.step == "budget":
+            ui.link("Ouvrir Gmail", GMAIL_DRAFTS, new_tab=True).classes("yd-notice-link")
+
+    async def ask_one(self, trip_id: int, field) -> None:
+        try:
+            remember_reason(trip_id, field.value or "")
+        except ValueError as exc:
+            ui.notify(str(exc), type="negative")
+            return
+        if self._data is None:
+            return
+        if not self._data.contract_ok:
+            ui.navigate.to("/reglages")
+            return
+        if not self._data.gmail_ok:
+            await self.begin_gmail()
+            return
+        reason = (field.value or "").strip()
+        if not reason:
+            ui.notify("Écrivez le motif de ce trajet.", type="warning")
+            return
+        if self._data.budget_left < 1:
+            ui.notify(
+                "Le plafond du jour est atteint. Ouvrez Gmail pour envoyer les brouillons.",
+                type="warning",
+            )
+            return
+        found = next(
+            (item for item in candidate_cards(self._data.trips) if item.id == trip_id), None,
+        )
+        if found is None:
+            return
+        when = format_when(found.started_at, self._data.timezone)
+        ask(
+            "Préparer le brouillon",
+            (
+                f"{when} — score {format_score(found.score)}\n\n"
+                "Le brouillon est créé dans Gmail, avec la capture du trajet. "
+                "Vous l'envoyez ensuite depuis Gmail."
+            ),
+            "Créer le brouillon",
+            lambda trip_id=trip_id: self.run_one(trip_id),
+        )
+
+    async def run_one(self, trip_id: int) -> None:
+        self.flush()
+        job = await run_job(
+            "Préparation du brouillon.", partial(create_one_draft, trip_id), self.draw,
+        )
+        if job.skipped:
+            return
+        if job.error is None and isinstance(job.result, tuple):
+            made, left, limit = job.result
+            note(describe_drafts(made, left, limit), follow=("Ouvrir Gmail", GMAIL_DRAFTS))
         self.draw()
 
     async def run_drafts(self) -> None:
@@ -578,7 +738,7 @@ class HomePage:
             return
         if job.error is None and isinstance(job.result, tuple):
             made, left, limit = job.result
-            workspace.message = describe_drafts(made, left, limit)
+            note(describe_drafts(made, left, limit), follow=("Ouvrir Gmail", GMAIL_DRAFTS))
         self.draw()
 
 
@@ -644,14 +804,9 @@ def page_trips() -> None:
                             ui.label(route).classes("yd-route")
                         if card.screenshot:
                             shot = card.screenshot
-                            ui.image(f"/captures/{shot}").classes(
-                                "yd-shot yd-shot-card yd-shot-open",
-                            ).props(
-                                'role="button" tabindex="0" '
-                                'aria-label="Agrandir la capture du trajet"',
-                            ).on("click", lambda _event, shot=shot: show_shot(shot)).on(
-                                "keydown.enter", lambda _event, shot=shot: show_shot(shot),
-                            )
+                            image = ui.image(f"/captures/{shot}").classes("yd-shot yd-shot-card")
+                            open_capture(image, shot)
+                            paint_capture_button(shot)
 
     draw()
 
@@ -706,6 +861,7 @@ def paint_claims(draw, data: Snapshot | None) -> None:
             except ValueError:
                 workspace.error = "Choisissez une date."
                 workspace.message = ""
+                workspace.follow = None
                 draw()
                 return
             ask(
@@ -722,9 +878,8 @@ def paint_claims(draw, data: Snapshot | None) -> None:
             except (SQLAlchemyError, OSError, ValueError) as exc:
                 show_error(exc)
             else:
-                workspace.error = ""
-                workspace.message = (
-                    f"Trajets marqués comme déjà réclamés : {marked}. Aucun brouillon créé."
+                note(
+                    f"Trajets marqués comme déjà réclamés : {marked}. Aucun brouillon créé.",
                 )
             draw()
 
@@ -818,8 +973,7 @@ def paint_settings(draw) -> None:
                 except (OSError, ValueError) as exc:
                     show_error(exc)
                 else:
-                    workspace.error = ""
-                    workspace.message = "Réglages enregistrés."
+                    note("Réglages enregistrés.")
                 draw()
 
             async def connect() -> None:
@@ -830,7 +984,7 @@ def paint_settings(draw) -> None:
                 if job.skipped:
                     return
                 if job.error is None:
-                    workspace.message = "Connexion Gmail enregistrée. Aucun message envoyé."
+                    note("Connexion Gmail enregistrée. Aucun message envoyé.")
                 draw()
 
             ui.button("Enregistrer", on_click=save).props("unelevated no-caps").classes("yd-button")

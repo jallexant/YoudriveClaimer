@@ -11,12 +11,15 @@ from youdrive.services.trips import list_candidates, remaining_draft_budget
 
 
 def prepare_drafts(
-    session: Session, settings: Settings, now: datetime, create, *, with_reason_only: bool = False,
+    session: Session, settings: Settings, now: datetime, create, *,
+    with_reason_only: bool = False, only_id: int | None = None,
 ) -> int:
     """Oldest candidates first. A saved reason is included; an empty one is not invented."""
     require_contract(settings)
     budget = remaining_draft_budget(session, settings, now)
     chosen = list_candidates(session)
+    if only_id is not None:
+        chosen = [trip for trip in chosen if trip.id == only_id]
     if with_reason_only:
         chosen = [trip for trip in chosen if isinstance(trip.reason, str) and trip.reason.strip()]
     chosen = chosen[:budget]

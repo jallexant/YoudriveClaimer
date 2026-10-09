@@ -258,6 +258,46 @@ def test_saved_reason_is_copied_and_the_address_stays_out(session):
     assert "adresse privée" not in text
 
 
+def test_one_named_trip_is_prepared_on_its_own(session):
+    now = datetime(2026, 10, 6, 12, tzinfo=UTC)
+    older = add_trip(session, "phone:older", datetime(2026, 9, 1, tzinfo=UTC))
+    older.reason = "Ancien motif"
+    chosen = add_trip(session, "phone:chosen", datetime(2026, 9, 2, tzinfo=UTC))
+    chosen.reason = "Motif de ce trajet"
+    made = prepare_drafts(
+        session, Settings(contract_number="000", daily_claim_limit=3), now,
+        lambda _message: "draft-one", with_reason_only=True, only_id=chosen.id,
+    )
+    assert made == 1
+    claim = session.scalar(select(Claim))
+    assert claim is not None
+    assert claim.trip_id == chosen.id
+    assert "Motif de ce trajet" in claim.text
+    assert session.scalar(select(Claim).where(Claim.trip_id == older.id)) is None
+
+
+def test_named_trip_still_respects_the_daily_budget(session):
+    now = datetime(2026, 10, 6, 12, tzinfo=UTC)
+    filled = add_trip(session, "phone:filled", datetime(2026, 8, 1, tzinfo=UTC))
+    session.add(Claim(trip_id=filled.id, created_at=now))
+    waiting = add_trip(session, "phone:waiting", datetime(2026, 9, 2, tzinfo=UTC))
+    waiting.reason = "Motif prêt"
+    session.commit()
+    called = False
+
+    def create(_message):
+        nonlocal called
+        called = True
+        return "draft-extra"
+
+    made = prepare_drafts(
+        session, Settings(contract_number="000", daily_claim_limit=1), now,
+        create, with_reason_only=True, only_id=waiting.id,
+    )
+    assert made == 0
+    assert called is False
+
+
 def test_only_ready_reasons_are_prepared_oldest_first(session):
     now = datetime(2026, 10, 6, 12, tzinfo=UTC)
     skipped = add_trip(session, "phone:skip", datetime(2026, 9, 1, tzinfo=UTC))

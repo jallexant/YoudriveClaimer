@@ -73,6 +73,12 @@ a:focus-visible, .q-btn:focus-visible { outline: 3px solid #b7a3d9; outline-offs
 .yd-hint { color: var(--yd-muted); font-size: 13px; line-height: 1.5; }
 .yd-section { font-size: 24px; font-weight: 750; margin-top: 6px; }
 .yd-section-head { gap: 5px; }
+.yd-section-bar { width: 100%;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 12px 24px;
+  flex-wrap: wrap;
+  }
 .yd-chips { display: grid !important;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 16px;
@@ -181,6 +187,10 @@ a:focus-visible, .q-btn:focus-visible { outline: 3px solid #b7a3d9; outline-offs
 .yd-card-actions { border-top: 1px solid #eeebf3;
   padding-top: 12px;
   width: 100%;
+  gap: 4px;
+  align-items: stretch;
+  }
+.yd-card-links { width: 100%;
   justify-content: space-between;
   gap: 8px;
   flex-wrap: wrap;
@@ -206,10 +216,23 @@ a:focus-visible, .q-btn:focus-visible { outline: 3px solid #b7a3d9; outline-offs
   }
 .yd-shot-card { height: 420px; max-height: 420px; }
 .yd-shot-open { cursor: zoom-in; }
-.yd-shot-large { max-height: 420px; }
-.yd-dialog-shot { width: min(22rem, 92vw);
-  max-height: 92vh;
+.yd-shot-link { align-self: flex-start;
+  color: var(--yd-purple) !important;
+  min-height: 36px;
+  padding: 0 8px;
+  }
+.yd-shot.yd-shot-large { height: min(70vh, 640px); max-height: min(70vh, 640px); }
+.yd-shot.yd-shot-large .q-img__image { object-fit: contain !important;
+  object-position: center center !important;
+  }
+.yd-dialog.yd-dialog-shot { width: fit-content;
+  max-width: 96vw;
+  max-height: 96vh;
   overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px 20px 20px;
   }
 .yd-shot-head { position: sticky;
   top: 0;
@@ -220,11 +243,20 @@ a:focus-visible, .q-btn:focus-visible { outline: 3px solid #b7a3d9; outline-offs
   flex-wrap: nowrap;
   background: white;
   }
-.yd-shot-full { width: 100%;
+.yd-shot-full { width: auto;
+  max-width: min(520px, 92vw);
+  max-height: calc(96vh - 120px);
   height: auto;
+  object-fit: contain;
   display: block;
+  margin: 0 auto;
   border-radius: 8px;
   background: #f5f4f9;
+  }
+.yd-notice-link { color: var(--yd-purple);
+  font-weight: 700;
+  white-space: nowrap;
+  text-decoration: none;
   }
 .yd-claim-list { display: flex !important;
   flex-direction: column;

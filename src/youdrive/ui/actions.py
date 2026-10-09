@@ -99,14 +99,30 @@ def mark_before(raw_day: str) -> int:
 
 
 def create_ready_drafts() -> tuple[int, int, int]:
+    return _create_drafts(None)
+
+
+def create_one_draft(trip_id: int) -> tuple[int, int, int]:
+    return _create_drafts(trip_id)
+
+
+def _create_drafts(only_id: int | None) -> tuple[int, int, int]:
     settings = current_settings()
     with session_scope(settings) as (_settings, session):
         now = datetime.now(UTC)
+        if only_id is not None and remaining_draft_budget(session, settings, now) < 1:
+            raise ValueError(
+                "Le plafond du jour est atteint. "
+                "Ouvrez Gmail pour envoyer les brouillons préparés."
+            )
         made = prepare_drafts(
             session, settings, now,
             lambda message: create_draft(settings, message),
             with_reason_only=True,
+            only_id=only_id,
         )
+        if only_id is not None and made == 0:
+            raise ValueError("Écrivez le motif, ou ce trajet n'est plus à préparer.")
         left = remaining_draft_budget(session, settings, now)
     return made, left, settings.daily_claim_limit
 
