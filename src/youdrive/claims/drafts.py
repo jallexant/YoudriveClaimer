@@ -15,7 +15,7 @@ def prepare_drafts(
     session: Session, settings: Settings, now: datetime, create, *,
     with_reason_only: bool = False, only_id: int | None = None,
 ) -> int:
-    """Oldest candidates first. A saved reason is included; an empty one is not invented."""
+    """Oldest candidates first. A saved reason is used; otherwise the default message is."""
     return _accept(
         session, settings, now, create, sent=False,
         with_reason_only=with_reason_only, only_id=only_id,
@@ -43,7 +43,11 @@ def _accept(
     if only_id is not None:
         chosen = [trip for trip in chosen if trip.id == only_id]
     if with_reason_only:
-        chosen = [trip for trip in chosen if isinstance(trip.reason, str) and trip.reason.strip()]
+        fallback = bool(settings.default_claim_message.strip())
+        chosen = [
+            trip for trip in chosen
+            if fallback or (isinstance(trip.reason, str) and trip.reason.strip())
+        ]
     chosen = chosen[:budget]
     created = 0
     for trip in chosen:

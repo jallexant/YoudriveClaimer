@@ -4,6 +4,7 @@ import pytest
 
 from youdrive.ui.present import (
     HomeView,
+    Snapshot,
     Step,
     TripCard,
     candidate_cards,
@@ -14,6 +15,7 @@ from youdrive.ui.present import (
     format_distance,
     format_duration,
     format_when,
+    home_view,
     listed_claims,
     next_step,
     route_labels,
@@ -125,6 +127,18 @@ def test_draft_batch_is_the_oldest_ready_within_budget():
     trips = [card(1, reason="  "), card(2, reason="vitesse"), card(3, reason="virage")]
     assert [item.id for item in selectable_for_drafts(trips, 1)] == [2]
     assert selectable_for_drafts(trips, 0) == []
+
+
+def test_default_message_selects_trips_without_a_reason():
+    trips = [card(1, reason="  "), card(2, reason="vitesse")]
+    assert [item.id for item in selectable_for_drafts(trips, 2)] == [2]
+    assert [item.id for item in selectable_for_drafts(trips, 2, fallback=True)] == [1, 2]
+    shared = dict(
+        timezone="Europe/Paris", daily_limit=3, budget_left=3,
+        contract_ok=True, gmail_ok=True, trips=tuple(trips),
+    )
+    assert home_view(Snapshot(**shared), True, True, "").ready == 1
+    assert home_view(Snapshot(**shared, default_message=True), True, True, "").ready == 2
 
 
 def test_candidates_skip_perfect_scores_unknown_scores_and_claims():

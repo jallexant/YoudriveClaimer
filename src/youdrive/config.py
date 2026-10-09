@@ -15,6 +15,7 @@ class Settings:
     log_level: str = "INFO"
     contract_number: str = ""
     mail_signature: str = ""
+    default_claim_message: str = ""
     gmail_client_file: Path | None = None
     attach_screenshot: bool = True
 
@@ -29,6 +30,8 @@ class Settings:
             raise ValueError("YOUDRIVE_LOG_LEVEL est invalide.")
         if len(self.mail_signature) > 4000:
             raise ValueError("YOUDRIVE_MAIL_SIGNATURE est trop longue.")
+        if len(self.default_claim_message) > 2000:
+            raise ValueError("YOUDRIVE_DEFAULT_CLAIM_MESSAGE est trop long.")
 
     @classmethod
     def from_env(cls, env_file: Path = Path(".env")) -> "Settings":
@@ -45,6 +48,9 @@ class Settings:
             log_level=os.getenv("YOUDRIVE_LOG_LEVEL", "INFO").upper(),
             contract_number=os.getenv("YOUDRIVE_CONTRACT_NUMBER", "").strip(),
             mail_signature=os.getenv("YOUDRIVE_MAIL_SIGNATURE", "").replace("\\n", "\n"),
+            default_claim_message=os.getenv("YOUDRIVE_DEFAULT_CLAIM_MESSAGE", "").replace(
+                "\\n", "\n",
+            ),
             gmail_client_file=Path(client) if client else None,
             attach_screenshot=_enabled("YOUDRIVE_ATTACH_SCREENSHOT", True),
         )
@@ -63,17 +69,20 @@ def _enabled(name: str, default: bool) -> bool:
 def save_preferences(
     env_file: Path, contract_number: str, mail_signature: str,
     daily_claim_limit: int, gmail_client_file: str, attach_screenshot: bool,
+    default_claim_message: str = "",
 ) -> None:
     """Write the fields edited from the local screen. Other keys stay in the file."""
     contract_number = contract_number.strip()
     if contract_number and _CONTRACT.fullmatch(contract_number) is None:
         raise ValueError("Numéro de contrat invalide.")
     mail_signature = mail_signature.replace("\r\n", "\n")
+    default_claim_message = default_claim_message.replace("\r\n", "\n")
     client = gmail_client_file.strip()
     Settings(
         daily_claim_limit=daily_claim_limit,
         contract_number=contract_number,
         mail_signature=mail_signature,
+        default_claim_message=default_claim_message,
         gmail_client_file=Path(client) if client else None,
         attach_screenshot=attach_screenshot,
     )
@@ -82,8 +91,10 @@ def save_preferences(
         env_file.write_text("", encoding="utf-8")
     path = str(env_file)
     stored_signature = mail_signature.replace("\n", "\\n")
+    stored_message = default_claim_message.replace("\n", "\\n")
     set_key(path, "YOUDRIVE_CONTRACT_NUMBER", contract_number, quote_mode="always")
     set_key(path, "YOUDRIVE_MAIL_SIGNATURE", stored_signature, quote_mode="always")
+    set_key(path, "YOUDRIVE_DEFAULT_CLAIM_MESSAGE", stored_message, quote_mode="always")
     set_key(path, "YOUDRIVE_DAILY_CLAIM_LIMIT", str(daily_claim_limit), quote_mode="never")
     set_key(path, "YOUDRIVE_GMAIL_CLIENT_FILE", client, quote_mode="always")
     set_key(

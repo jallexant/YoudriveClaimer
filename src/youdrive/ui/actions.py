@@ -72,6 +72,7 @@ def load_snapshot() -> Snapshot:
             contract_ok=_contract_ok(settings),
             gmail_ok=token_path(settings).is_file() and not reconnect,
             gmail_reconnect=reconnect,
+            default_message=bool(settings.default_claim_message.strip()),
             trips=cards,
         )
 
@@ -170,9 +171,11 @@ def connect_gmail(on_url: Callable[[str], None] | None = None) -> None:
 
 def write_preferences(
     contract: str, signature: str, daily_limit: int, client: str, attach_screenshot: bool,
+    default_message: str = "",
 ) -> None:
     save_preferences(
         Path(".env"), contract, signature, daily_limit, client, attach_screenshot,
+        default_message,
     )
 
 

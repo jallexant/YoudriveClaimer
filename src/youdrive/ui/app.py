@@ -672,6 +672,7 @@ class HomePage:
             return
         selected = selectable_for_drafts(
             candidate_cards(self._data.trips), self._data.budget_left,
+            fallback=self._data.default_message,
         )
         if not selected:
             workspace.error = "Écrivez le motif des trajets à préparer."
@@ -805,6 +806,7 @@ class HomePage:
             return
         selected = selectable_for_drafts(
             candidate_cards(self._data.trips), self._data.budget_left,
+            fallback=self._data.default_message,
         )
         if not selected:
             workspace.error = "Écrivez le motif des trajets à envoyer."
@@ -860,7 +862,7 @@ class HomePage:
             await self.begin_gmail()
             return None
         reason = (field.value or "").strip()
-        if not reason:
+        if not reason and not current_settings().default_claim_message.strip():
             ui.notify("Écrivez le motif de ce trajet.", type="warning")
             return None
         if self._data.budget_left < 1:
@@ -1097,6 +1099,12 @@ def paint_settings(draw) -> None:
             contract = ui.input(
                 "Numéro de contrat", value=settings.contract_number,
             ).props("outlined")
+            default_message = ui.textarea(
+                "Message par défaut", value=settings.default_claim_message,
+            ).props("outlined autogrow")
+            ui.label(
+                "Utilisé sous la date du trajet quand le motif est vide.",
+            ).classes("yd-hint")
             signature = ui.textarea(
                 "Signature du mail", value=settings.mail_signature,
             ).props("outlined autogrow")
@@ -1133,6 +1141,7 @@ def paint_settings(draw) -> None:
                         int(raw_limit),
                         client_input.value or "",
                         bool(attach.value),
+                        default_message.value or "",
                     )
                 except (OSError, ValueError) as exc:
                     show_error(exc)

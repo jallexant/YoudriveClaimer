@@ -191,10 +191,13 @@ def test_claim_follow_up_stays_local(session):
 def test_screen_preferences_roundtrip_without_dropping_other_keys(tmp_path):
     env = tmp_path / ".env"
     env.write_text("YOUDRIVE_DB_PATH=data/youdrive.sqlite3\n", encoding="utf-8")
-    save_preferences(env, "000", "Jérémie\nMobile", 3, "client.json", True)
+    save_preferences(
+        env, "000", "Jérémie\nMobile", 3, "client.json", True, "Freinage\nbrusque",
+    )
     raw = env.read_text(encoding="utf-8")
     assert "YOUDRIVE_DB_PATH=data/youdrive.sqlite3" in raw
     assert "YOUDRIVE_MAIL_SIGNATURE" in raw
+    assert "YOUDRIVE_DEFAULT_CLAIM_MESSAGE" in raw
     before = dict(os.environ)
     try:
         for key in list(os.environ):
@@ -203,6 +206,7 @@ def test_screen_preferences_roundtrip_without_dropping_other_keys(tmp_path):
         settings = Settings.from_env(env)
         assert settings.contract_number == "000"
         assert settings.mail_signature == "Jérémie\nMobile"
+        assert settings.default_claim_message == "Freinage\nbrusque"
         assert settings.daily_claim_limit == 3
         assert settings.gmail_client_file == Path("client.json")
         assert settings.attach_screenshot is True
@@ -221,6 +225,14 @@ def test_screenshot_choice_is_saved(tmp_path, monkeypatch):
     monkeypatch.setenv("YOUDRIVE_DB_PATH", str(tmp_path / "settings.sqlite3"))
     assert Settings.from_env(env).attach_screenshot is False
     assert "YOUDRIVE_ATTACH_SCREENSHOT=0" in env.read_text(encoding="utf-8")
+
+
+def test_default_message_too_long_is_not_written(tmp_path):
+    env = tmp_path / ".env"
+    env.write_text("YOUDRIVE_DEFAULT_CLAIM_MESSAGE=court\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="trop long"):
+        save_preferences(env, "000", "", 3, "", True, "a" * 2001)
+    assert "a" * 2001 not in env.read_text(encoding="utf-8")
 
 
 def test_invalid_contract_is_not_written(tmp_path):

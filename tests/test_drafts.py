@@ -45,6 +45,24 @@ def test_letter_uses_the_form_shape_without_inventing_a_reason():
     assert "basse vitesse" not in text
 
 
+def test_default_message_fills_an_empty_reason_and_yields_to_a_specific_one():
+    trip = Trip(
+        youdrive_id="phone:letter", started_at=datetime(2026, 9, 26, 12, 58, tzinfo=UTC),
+        score=72,
+    )
+    settings = Settings(contract_number="000", default_claim_message="Freinage brusque")
+    _message, text = build_message(settings, trip)
+    assert "Freinage brusque" in text
+    assert text.index("Trajet du 26 Septembre à 14:58.") < text.index("Freinage brusque")
+    trip.reason = "  "
+    _message, blank = build_message(settings, trip)
+    assert "Freinage brusque" in blank
+    trip.reason = "Virage lent"
+    _message, specific = build_message(settings, trip)
+    assert "Virage lent" in specific
+    assert "Freinage brusque" not in specific
+
+
 def test_draft_shows_the_detail_capture_in_the_body(tmp_path):
     name = f"{'cd' * 32}.png"
     folder = tmp_path / "screenshots"
@@ -446,6 +464,36 @@ def test_only_ready_reasons_are_prepared_oldest_first(session):
     assert "Défaut de vitesse" in claim.text
     assert session.scalar(select(Claim).where(Claim.trip_id == second.id)) is None
     assert session.scalar(select(Claim).where(Claim.trip_id == skipped.id)) is None
+
+
+def test_default_message_prepares_a_trip_without_a_reason(session):
+    now = datetime(2026, 10, 6, 12, tzinfo=UTC)
+    empty = add_trip(session, "phone:empty", datetime(2026, 9, 1, tzinfo=UTC))
+    specific = add_trip(session, "phone:specific", datetime(2026, 9, 2, tzinfo=UTC))
+    specific.reason = "Virage lent"
+    made = prepare_drafts(
+        session, Settings(
+            contract_number="000", daily_claim_limit=2,
+            default_claim_message="Freinage brusque",
+        ), now,
+        lambda _message: "draft-default", with_reason_only=True,
+    )
+    assert made == 2
+    texts = {claim.trip_id: claim.text for claim in session.scalars(select(Claim))}
+    assert "Freinage brusque" in texts[empty.id]
+    assert "Virage lent" in texts[specific.id]
+    assert "Freinage brusque" not in texts[specific.id]
+    assert empty.reason is None
+
+
+def test_blank_default_message_still_skips_an_empty_reason(session):
+    now = datetime(2026, 10, 6, 12, tzinfo=UTC)
+    add_trip(session, "phone:blank", datetime(2026, 9, 1, tzinfo=UTC))
+    made = prepare_drafts(
+        session, Settings(contract_number="000", default_claim_message="  \n "), now,
+        lambda _message: "draft-blank", with_reason_only=True,
+    )
+    assert made == 0
 
 
 def test_existing_trips_table_gains_the_reason_column(tmp_path):

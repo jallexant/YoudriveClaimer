@@ -118,6 +118,8 @@ def _paragraphs(settings: Settings, trip: Trip, contract: str) -> list[str]:
         f"Trajet du {when}.",
     ]
     reason = trip.reason.strip() if isinstance(trip.reason, str) else ""
+    if not reason:
+        reason = settings.default_claim_message.strip()
     if reason:
         paragraphs.append(reason)
     return paragraphs

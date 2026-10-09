@@ -51,6 +51,7 @@ class Snapshot:
     gmail_ok: bool
     trips: tuple[TripCard, ...]
     gmail_reconnect: bool = False
+    default_message: bool = False
 
 
 @dataclass(frozen=True)
@@ -100,8 +101,13 @@ def candidate_cards(trips: tuple[TripCard, ...] | list[TripCard]) -> list[TripCa
     ]
 
 
-def selectable_for_drafts(candidates: list[TripCard], budget: int) -> list[TripCard]:
-    ready = [trip for trip in candidates if trip.reason.strip()]
+def selectable_for_drafts(
+    candidates: list[TripCard], budget: int, *, fallback: bool = False,
+) -> list[TripCard]:
+    if fallback:
+        ready = list(candidates)
+    else:
+        ready = [trip for trip in candidates if trip.reason.strip()]
     if budget < 1:
         return []
     return ready[:budget]
@@ -111,7 +117,10 @@ def home_view(
     snapshot: Snapshot, phone_known: bool, phone_ok: bool, phone_message: str,
 ) -> HomeView:
     candidates = candidate_cards(snapshot.trips)
-    ready = sum(bool(trip.reason.strip()) for trip in candidates)
+    if snapshot.default_message:
+        ready = len(candidates)
+    else:
+        ready = sum(bool(trip.reason.strip()) for trip in candidates)
     return HomeView(
         phone_known=phone_known,
         phone_ok=phone_ok,
