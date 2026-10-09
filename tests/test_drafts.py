@@ -265,6 +265,17 @@ def test_create_draft_encodes_the_message_and_applies_the_label():
     assert ("messages.modify", "msg-1", {"addLabelIds": ["Label_9"]}) in service.log
 
 
+def test_nested_gmail_label_is_reused():
+    from youdrive.claims.gmail import ensure_label
+
+    service = _Service([
+        {"id": "Label_parent", "name": "ADM/Voitures/Toyota"},
+        {"id": "Label_9", "name": "ADM/Voitures/Toyota/Assurance"},
+    ])
+    assert ensure_label(service) == "Label_9"
+    assert not any(item[0] == "labels.create" for item in service.log)
+
+
 def test_missing_label_is_created_before_the_draft():
     service = _Service([])
     message, _text = build_message(

@@ -180,6 +180,31 @@ def send_message(settings: Settings, message: EmailMessage, service=None) -> str
     return message_id
 
 
+def _label_key(name: str) -> str:
+    """Gmail treats ADM/Voitures/Toyota/Assurance as adm-voitures-toyota-assurance."""
+    return name.replace("/", "-").casefold()
+
+
+def _matching_label_id(listed, name: str) -> str | None:
+    labels = listed.get("labels") if isinstance(listed, dict) else None
+    if not isinstance(labels, list):
+        return None
+    wanted = _label_key(name)
+    nested = None
+    for label in labels:
+        if not isinstance(label, dict):
+            continue
+        label_name = label.get("name")
+        label_id = label.get("id")
+        if not isinstance(label_name, str) or not isinstance(label_id, str) or not label_id:
+            continue
+        if label_name == name:
+            return label_id
+        if nested is None and _label_key(label_name) == wanted:
+            nested = label_id
+    return nested
+
+
 def ensure_label(service, name: str = LABEL_NAME) -> str:
     try:
         listed = service.users().labels().list(userId="me").execute()
@@ -187,13 +212,9 @@ def ensure_label(service, name: str = LABEL_NAME) -> str:
         raise
     except Exception:
         raise GmailError("Reconnectez Gmail pour autoriser le libellé.") from None
-    labels = listed.get("labels") if isinstance(listed, dict) else None
-    if isinstance(labels, list):
-        for label in labels:
-            if isinstance(label, dict) and label.get("name") == name:
-                label_id = label.get("id")
-                if isinstance(label_id, str) and label_id:
-                    return label_id
+    found = _matching_label_id(listed, name)
+    if found:
+        return found
     try:
         created = service.users().labels().create(
             userId="me",
