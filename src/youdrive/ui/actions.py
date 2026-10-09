@@ -11,9 +11,9 @@ from zoneinfo import ZoneInfo
 from dotenv import load_dotenv
 from sqlalchemy import select
 
-from youdrive.claims.drafts import prepare_drafts
+from youdrive.claims.drafts import prepare_drafts, send_messages
 from youdrive.claims.errors import GmailError
-from youdrive.claims.gmail import create_draft, login, token_path
+from youdrive.claims.gmail import create_draft, login, needs_reconnect, send_message, token_path
 from youdrive.claims.letters import require_contract, screenshot_path
 from youdrive.config import Settings, save_preferences
 from youdrive.db.session import initialize_database, open_database
@@ -64,12 +64,14 @@ def load_snapshot() -> Snapshot:
     with session_scope() as (settings, session):
         cards = tuple(_card(settings, trip) for trip in list_trips(session))
         budget = remaining_draft_budget(session, settings, datetime.now(UTC))
+        reconnect = needs_reconnect(settings)
         return Snapshot(
             timezone=settings.timezone,
             daily_limit=settings.daily_claim_limit,
             budget_left=budget,
             contract_ok=_contract_ok(settings),
-            gmail_ok=token_path(settings).is_file(),
+            gmail_ok=token_path(settings).is_file() and not reconnect,
+            gmail_reconnect=reconnect,
             trips=cards,
         )
 
@@ -99,28 +101,41 @@ def mark_before(raw_day: str) -> int:
 
 
 def create_ready_drafts() -> tuple[int, int, int]:
-    return _create_drafts(None)
+    return _deliver(None, send=False)
 
 
 def create_one_draft(trip_id: int) -> tuple[int, int, int]:
-    return _create_drafts(trip_id)
+    return _deliver(trip_id, send=False)
 
 
-def _create_drafts(only_id: int | None) -> tuple[int, int, int]:
+def send_ready_messages() -> tuple[int, int, int]:
+    return _deliver(None, send=True)
+
+
+def send_one_message(trip_id: int) -> tuple[int, int, int]:
+    return _deliver(trip_id, send=True)
+
+
+def _deliver(only_id: int | None, *, send: bool) -> tuple[int, int, int]:
     settings = current_settings()
     with session_scope(settings) as (_settings, session):
         now = datetime.now(UTC)
         if only_id is not None and remaining_draft_budget(session, settings, now) < 1:
-            raise ValueError(
-                "Le plafond du jour est atteint. "
-                "Ouvrez Gmail pour envoyer les brouillons préparés."
+            raise ValueError("Le plafond du jour est atteint.")
+        if send:
+            made = send_messages(
+                session, settings, now,
+                lambda message: send_message(settings, message),
+                with_reason_only=True,
+                only_id=only_id,
             )
-        made = prepare_drafts(
-            session, settings, now,
-            lambda message: create_draft(settings, message),
-            with_reason_only=True,
-            only_id=only_id,
-        )
+        else:
+            made = prepare_drafts(
+                session, settings, now,
+                lambda message: create_draft(settings, message),
+                with_reason_only=True,
+                only_id=only_id,
+            )
         if only_id is not None and made == 0:
             raise ValueError("Écrivez le motif, ou ce trajet n'est plus à préparer.")
         left = remaining_draft_budget(session, settings, now)
@@ -149,12 +164,16 @@ def sync_phone(
     return len(incoming), added, updated, shots, reached
 
 
-def connect_gmail() -> None:
-    login(current_settings())
+def connect_gmail(on_url: Callable[[str], None] | None = None) -> None:
+    login(current_settings(), on_url=on_url)
 
 
-def write_preferences(contract: str, signature: str, daily_limit: int, client: str) -> None:
-    save_preferences(Path(".env"), contract, signature, daily_limit, client)
+def write_preferences(
+    contract: str, signature: str, daily_limit: int, client: str, attach_screenshot: bool,
+) -> None:
+    save_preferences(
+        Path(".env"), contract, signature, daily_limit, client, attach_screenshot,
+    )
 
 
 def _contract_ok(settings: Settings) -> bool:

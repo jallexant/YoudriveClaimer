@@ -92,6 +92,19 @@ def test_missing_phone_and_missing_adb_are_different_messages():
     assert "YOUDRIVE_ADB" in adb.detail
 
 
+def test_missing_label_scope_asks_to_reconnect():
+    chosen = next_step(view(gmail_ok=False, gmail_reconnect=True))
+    assert chosen.step == Step.GMAIL
+    assert chosen.button == "Reconnecter Gmail"
+    assert chosen.send_button is None
+
+
+def test_ready_trips_offer_a_direct_send():
+    chosen = next_step(view())
+    assert chosen.button == "Préparer 2 brouillons"
+    assert chosen.send_button == "Envoyer 2 mails"
+
+
 def test_budget_sentence_agrees_with_the_limit():
     one = next_step(view(budget_left=0, daily_limit=1, ready=1))
     several = next_step(view(budget_left=0, daily_limit=3, ready=1))
@@ -141,7 +154,7 @@ def test_sync_and_draft_summaries_do_not_carry_an_address():
     assert same == "Aucun nouveau trajet. Le plus récent est déjà enregistré."
     assert "1 brouillon créé" in drafts
     assert "adresse" not in sync
-    assert "Aucun message envoyé." in drafts
+    assert "adm-voitures-toyota-assurance" in drafts
 
 
 def test_wait_copy_names_the_step_and_keeps_the_trip_count():
@@ -161,7 +174,15 @@ def test_wait_copy_names_the_step_and_keeps_the_trip_count():
     assert wait_copy(["Trajets lus : 2.", "Fin de la liste."]) == (
         "2 trajets lus", "Toute la liste a été lue.",
     )
-    assert wait_copy(["Connexion Gmail en cours."])[0] == "Connexion Gmail"
+    assert wait_copy(["Connexion Gmail en cours."]) == (
+        "Connexion Gmail",
+        "Préparation de la page Google. Aucun message n'est envoyé.",
+    )
+    page = "https://accounts.google.com/o/oauth2/v2/auth?scope=gmail"
+    assert "utilisez le bouton" in wait_copy(["Connexion Gmail en cours."], page)[1]
+    assert wait_copy(["Connexion Gmail en cours."], "javascript:alert(1)")[1].startswith(
+        "Préparation",
+    )
 
 
 def test_route_labels_ignore_anything_that_is_not_text():

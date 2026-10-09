@@ -1,5 +1,6 @@
-"""Local YouDrive screen. Bound to this computer. Nothing is sent."""
+"""Local YouDrive screen. Bound to this computer."""
 
+import json
 import logging
 import re
 import socket
@@ -10,6 +11,7 @@ from dataclasses import dataclass, replace
 from datetime import date
 from functools import partial
 from pathlib import Path
+from urllib.parse import quote
 
 from fastapi import HTTPException
 from fastapi.responses import FileResponse
@@ -17,7 +19,7 @@ from nicegui import app, run, ui
 from sqlalchemy.exc import SQLAlchemyError
 
 from youdrive.claims.errors import GmailError
-from youdrive.claims.gmail import token_path
+from youdrive.claims.gmail import LABEL_NAME, needs_reconnect, token_path
 from youdrive.claims.letters import build_message
 from youdrive.legacy import remove_legacy_auth_protocol
 from youdrive.logging_config import configure_logging
@@ -33,6 +35,8 @@ from youdrive.ui.actions import (
     mark_before,
     phone_status,
     remember_reason,
+    send_one_message,
+    send_ready_messages,
     sync_phone,
     write_preferences,
 )
@@ -45,12 +49,14 @@ from youdrive.ui.present import (
     chip_texts,
     claim_line,
     describe_drafts,
+    describe_sends,
     describe_sync,
     format_day,
     format_distance,
     format_duration,
     format_score,
     format_when,
+    google_auth_url,
     home_view,
     listed_claims,
     next_step,
@@ -63,7 +69,19 @@ from youdrive.ui.present import (
 from youdrive.ui.theme import install_theme, page_heading, shell
 
 PORT = 8765
-GMAIL_DRAFTS = "https://mail.google.com/mail/u/0/#drafts"
+GMAIL_LABEL = "https://mail.google.com/mail/u/0/#label/" + quote(LABEL_NAME)
+_ARM_GMAIL = (
+    "(...args) => {"
+    " window.__ydGmail = window.open('about:blank', 'youdrive-gmail');"
+    " emit(...args);"
+    "}"
+)
+_CLOSE_BLANK_GMAIL = (
+    "try {"
+    " const popup = window.__ydGmail;"
+    " if (popup && !popup.closed && popup.location.href === 'about:blank') popup.close();"
+    "} catch (e) {}"
+)
 _SHOT = re.compile(r"[0-9a-f]{64}\.png")
 _FAVICON = Path(__file__).with_name("favicon.ico")
 
@@ -80,11 +98,13 @@ class Workspace:
         self.phone_message = ""
         self.phone_token: object | None = None
         self.generation = 0
+        self._auth_url = ""
         self._lock = threading.Lock()
 
     def reset_progress(self) -> None:
         with self._lock:
             self.progress = []
+            self._auth_url = ""
 
     def push(self, line: str) -> None:
         with self._lock:
@@ -93,6 +113,14 @@ class Workspace:
     def lines(self) -> list[str]:
         with self._lock:
             return list(self.progress)
+
+    def set_auth_url(self, url: str) -> None:
+        with self._lock:
+            self._auth_url = url
+
+    def auth_url(self) -> str:
+        with self._lock:
+            return self._auth_url
 
 
 workspace = Workspace()
@@ -181,33 +209,69 @@ def paint_chips(view: HomeView) -> None:
                 ui.label(text).classes("yd-chip-value")
 
 
+def bind_gmail(button, handler):
+    """Open a blank window during the click, before the Google address exists."""
+    return button.on("click", handler, js_handler=_ARM_GMAIL)
+
+
 def paint_wait() -> None:
     with ui.column().classes("yd-wait"):
         title = ui.label("Un instant.").classes("yd-title")
         detail = ui.label("Cela peut prendre un moment.").classes("yd-lead")
+        link = ui.link("Ouvrir la page Google", "#", new_tab=True).classes("yd-wait-link")
+        link.set_visibility(False)
         ui.linear_progress(show_value=False, size="8px").props("indeterminate")
     generation = workspace.generation
+    shown = {"url": ""}
 
-    def pump(generation: int = generation, title=title, detail=detail) -> None:
+    def pump(generation: int = generation, title=title, detail=detail, link=link) -> None:
         if generation != workspace.generation:
             return
-        heading, sentence = wait_copy(workspace.lines())
+        url = google_auth_url(workspace.auth_url())
+        heading, sentence = wait_copy(workspace.lines(), url)
         title.set_text(heading)
         detail.set_text(sentence)
+        if not url or url == shown["url"]:
+            return
+        shown["url"] = url
+        link._props["href"] = url
+        link.set_visibility(True)
+        link.update()
+        ui.run_javascript(
+            "try {"
+            " const popup = window.__ydGmail;"
+            f" if (popup && !popup.closed) popup.location.replace({json.dumps(url)});"
+            "} catch (e) {}",
+        )
 
     pump()
     ui.timer(0.4, pump)
 
 
-def paint_hero(step: NextStep, on_primary) -> None:
+async def _close_blank_gmail() -> None:
+    await ui.run_javascript(_CLOSE_BLANK_GMAIL)
+
+
+def paint_hero(step: NextStep, on_primary, on_send=None) -> None:
     with ui.element("section").classes("yd-hero"):
         with ui.column().classes("yd-hero-copy"):
             ui.label(step.title).classes("yd-title")
             ui.label(step.detail).classes("yd-lead")
             if step.button and not workspace.busy:
-                ui.button(step.button, on_click=on_primary).props("unelevated no-caps").classes(
-                    "yd-button",
-                )
+                with ui.row().classes("yd-hero-actions"):
+                    if step.action == "gmail":
+                        bind_gmail(
+                            ui.button(step.button).props("unelevated no-caps").classes("yd-button"),
+                            on_primary,
+                        )
+                    else:
+                        ui.button(step.button, on_click=on_primary).props(
+                            "unelevated no-caps",
+                        ).classes("yd-button")
+                    if step.send_button and on_send is not None:
+                        ui.button(
+                            step.send_button, icon="send", on_click=on_send,
+                        ).props("outline no-caps").classes("yd-button-send")
         icon = {"phone": "smartphone", "read": "sync", "contract": "description",
                 "gmail": "mail_outline", "reason": "edit_note", "drafts": "drafts",
                 "budget": "savings", "clear": "task_alt"}[step.step]
@@ -393,7 +457,7 @@ class HomePage:
         with self.chips:
             paint_chips(view)
         with self.hero:
-            paint_hero(self.step, self.on_primary)
+            paint_hero(self.step, self.on_primary, self.ask_send_batch)
 
     def fill_waiting(self) -> None:
         if self._data is None or self.chips is None or self.hero is None:
@@ -484,10 +548,17 @@ class HomePage:
                 lambda _event, trip_id=card.id, field=field: self.keep(trip_id, field),
             )
             with ui.column().classes("yd-card-actions"):
-                ui.button(
-                    "Préparer le brouillon",
-                    on_click=lambda trip_id=card.id, field=field: self.ask_one(trip_id, field),
-                ).props("unelevated no-caps").classes("yd-button")
+                with ui.row().classes("yd-card-links"):
+                    ui.button(
+                        "Préparer le brouillon",
+                        on_click=lambda trip_id=card.id, field=field: self.ask_one(trip_id, field),
+                    ).props("unelevated no-caps").classes("yd-button")
+                    ui.button(
+                        "Envoyer le mail", icon="send",
+                        on_click=lambda trip_id=card.id, field=field: self.ask_send_one(
+                            trip_id, field,
+                        ),
+                    ).props("outline no-caps").classes("yd-button-send")
                 with ui.row().classes("yd-card-links"):
                     ui.button(
                         "Voir le mail",
@@ -570,10 +641,10 @@ class HomePage:
             ui.notify(str(exc), type="negative")
             return
         body = f"Destinataire : {message['To']}\nObjet : {message['Subject']}\n\n{text}"
-        note = None
-        if card.screenshot:
-            note = "La capture est insérée dans le corps du brouillon."
-        show_letter("Brouillon", body, card.screenshot, note)
+        attached = bool(card.screenshot) and current_settings().attach_screenshot
+        shot = card.screenshot if attached else None
+        note = "La capture est insérée dans le corps du mail." if attached else None
+        show_letter("Brouillon", body, shot, note)
 
     def ask_done(self, trip_id: int) -> None:
         ask(
@@ -614,7 +685,7 @@ class HomePage:
             lines.append(f"{when} — score {format_score(card.score)}")
         ask(
             "Préparer les brouillons",
-            "\n".join(lines) + "\n\nAucun message ne sera envoyé.",
+            "\n".join(lines) + "\n\n" + _delivery_text(False),
             "Créer les brouillons",
             self.run_drafts,
         )
@@ -650,13 +721,16 @@ class HomePage:
     async def begin_gmail(self) -> None:
         self.flush()
         job = await run_job(
-            "Connexion Gmail en cours. Une fenêtre du navigateur s'ouvre.",
-            connect_gmail, self.draw,
+            "Connexion Gmail en cours.",
+            partial(connect_gmail, workspace.set_auth_url), self.draw,
         )
         if job.skipped:
+            await _close_blank_gmail()
             return
         if job.error is None:
             note("Connexion Gmail enregistrée. Aucun message envoyé.")
+        else:
+            await _close_blank_gmail()
         self.draw()
 
     def paint_prepare_action(self) -> None:
@@ -664,57 +738,37 @@ class HomePage:
         if step is None:
             return
         if step.action == "drafts" and step.button:
-            ui.button(step.button, on_click=self.ask_drafts).props(
-                "unelevated no-caps",
-            ).classes("yd-button")
+            with ui.row().classes("yd-hero-actions"):
+                ui.button(step.button, on_click=self.ask_drafts).props(
+                    "unelevated no-caps",
+                ).classes("yd-button")
+                if step.send_button:
+                    ui.button(
+                        step.send_button, icon="send", on_click=self.ask_send_batch,
+                    ).props("outline no-caps").classes("yd-button-send")
         elif step.action == "gmail":
-            ui.button("Connecter Gmail", on_click=self.begin_gmail).props(
-                "unelevated no-caps",
-            ).classes("yd-button")
+            label = "Reconnecter Gmail" if self._data and self._data.gmail_reconnect else (
+                "Connecter Gmail"
+            )
+            bind_gmail(
+                ui.button(label).props("unelevated no-caps").classes("yd-button"),
+                self.begin_gmail,
+            )
         elif step.action == "settings":
             ui.button(
                 "Ouvrir les réglages", on_click=lambda: ui.navigate.to("/reglages"),
             ).props("unelevated no-caps").classes("yd-button")
         elif step.step == "budget":
-            ui.link("Ouvrir Gmail", GMAIL_DRAFTS, new_tab=True).classes("yd-notice-link")
+            ui.link("Ouvrir Gmail", GMAIL_LABEL, new_tab=True).classes("yd-notice-link")
 
     async def ask_one(self, trip_id: int, field) -> None:
-        try:
-            remember_reason(trip_id, field.value or "")
-        except ValueError as exc:
-            ui.notify(str(exc), type="negative")
-            return
-        if self._data is None:
-            return
-        if not self._data.contract_ok:
-            ui.navigate.to("/reglages")
-            return
-        if not self._data.gmail_ok:
-            await self.begin_gmail()
-            return
-        reason = (field.value or "").strip()
-        if not reason:
-            ui.notify("Écrivez le motif de ce trajet.", type="warning")
-            return
-        if self._data.budget_left < 1:
-            ui.notify(
-                "Le plafond du jour est atteint. Ouvrez Gmail pour envoyer les brouillons.",
-                type="warning",
-            )
-            return
-        found = next(
-            (item for item in candidate_cards(self._data.trips) if item.id == trip_id), None,
-        )
-        if found is None:
+        found = await self._ready_to_deliver(trip_id, field)
+        if found is None or self._data is None:
             return
         when = format_when(found.started_at, self._data.timezone)
         ask(
             "Préparer le brouillon",
-            (
-                f"{when} — score {format_score(found.score)}\n\n"
-                "Le brouillon est créé dans Gmail, avec la capture du trajet. "
-                "Vous l'envoyez ensuite depuis Gmail."
-            ),
+            f"{when} — score {format_score(found.score)}\n\n{_delivery_text(False)}",
             "Créer le brouillon",
             lambda trip_id=trip_id: self.run_one(trip_id),
         )
@@ -728,8 +782,93 @@ class HomePage:
             return
         if job.error is None and isinstance(job.result, tuple):
             made, left, limit = job.result
-            note(describe_drafts(made, left, limit), follow=("Ouvrir Gmail", GMAIL_DRAFTS))
+            note(describe_drafts(made, left, limit), follow=("Ouvrir Gmail", GMAIL_LABEL))
         self.draw()
+
+    async def ask_send_one(self, trip_id: int, field) -> None:
+        ready = await self._ready_to_deliver(trip_id, field)
+        if ready is None or self._data is None:
+            return
+        when = format_when(ready.started_at, self._data.timezone)
+        ask(
+            "Envoyer le mail",
+            f"{when} — score {format_score(ready.score)}\n\n{_delivery_text(True)}",
+            "Envoyer",
+            lambda trip_id=trip_id: self.run_send_one(trip_id),
+        )
+
+    def ask_send_batch(self) -> None:
+        self.flush()
+        self._data = load_screen()
+        if self._data is None:
+            self.draw()
+            return
+        selected = selectable_for_drafts(
+            candidate_cards(self._data.trips), self._data.budget_left,
+        )
+        if not selected:
+            workspace.error = "Écrivez le motif des trajets à envoyer."
+            workspace.message = ""
+            workspace.follow = None
+            self.draw()
+            return
+        lines = []
+        for card in selected:
+            when = format_when(card.started_at, self._data.timezone)
+            lines.append(f"{when} — score {format_score(card.score)}")
+        ask(
+            "Envoyer les mails",
+            "\n".join(lines) + "\n\n" + _delivery_text(True),
+            "Envoyer",
+            self.run_send_batch,
+        )
+
+    async def run_send_one(self, trip_id: int) -> None:
+        self.flush()
+        job = await run_job(
+            "Envoi du mail.", partial(send_one_message, trip_id), self.draw,
+        )
+        if job.skipped:
+            return
+        if job.error is None and isinstance(job.result, tuple):
+            made, left, limit = job.result
+            note(describe_sends(made, left, limit), follow=("Ouvrir Gmail", GMAIL_LABEL))
+        self.draw()
+
+    async def run_send_batch(self) -> None:
+        self.flush()
+        job = await run_job("Envoi des mails.", send_ready_messages, self.draw)
+        if job.skipped:
+            return
+        if job.error is None and isinstance(job.result, tuple):
+            made, left, limit = job.result
+            note(describe_sends(made, left, limit), follow=("Ouvrir Gmail", GMAIL_LABEL))
+        self.draw()
+
+    async def _ready_to_deliver(self, trip_id: int, field):
+        try:
+            remember_reason(trip_id, field.value or "")
+        except ValueError as exc:
+            ui.notify(str(exc), type="negative")
+            return None
+        if self._data is None:
+            return None
+        if not self._data.contract_ok:
+            ui.navigate.to("/reglages")
+            return None
+        if not self._data.gmail_ok:
+            await self.begin_gmail()
+            return None
+        reason = (field.value or "").strip()
+        if not reason:
+            ui.notify("Écrivez le motif de ce trajet.", type="warning")
+            return None
+        if self._data.budget_left < 1:
+            ui.notify("Le plafond du jour est atteint.", type="warning")
+            return None
+        return next(
+            (item for item in candidate_cards(self._data.trips) if item.id == trip_id), None,
+        )
 
     async def run_drafts(self) -> None:
         self.flush()
@@ -738,8 +877,24 @@ class HomePage:
             return
         if job.error is None and isinstance(job.result, tuple):
             made, left, limit = job.result
-            note(describe_drafts(made, left, limit), follow=("Ouvrir Gmail", GMAIL_DRAFTS))
+            note(describe_drafts(made, left, limit), follow=("Ouvrir Gmail", GMAIL_LABEL))
         self.draw()
+
+
+def _delivery_text(send: bool) -> str:
+    if send:
+        text = (
+            "Le mail part vers le service technique YouDrive. "
+            f"Le libellé {LABEL_NAME} est ajouté."
+        )
+    else:
+        text = (
+            "Le brouillon est créé dans Gmail. "
+            f"Le libellé {LABEL_NAME} est ajouté."
+        )
+    if current_settings().attach_screenshot:
+        text += " La capture du trajet est jointe."
+    return text
 
 
 def watch_until_idle(draw) -> None:
@@ -951,12 +1106,20 @@ def paint_settings(draw) -> None:
                 min=1, max=30, step=1, precision=0,
             ).props("outlined")
             ui.label(
-                "Les plus anciens trajets sont préparés dans cette limite, chaque jour.",
+                "Les brouillons et les envois du jour comptent dans cette limite.",
             ).classes("yd-hint")
+            attach = ui.checkbox(
+                "Joindre la capture du trajet au mail", value=settings.attach_screenshot,
+            )
+            ui.label("Le texte du motif est toujours présent.").classes("yd-hint")
             client = "" if settings.gmail_client_file is None else str(settings.gmail_client_file)
             client_input = ui.input("Fichier client Google (JSON)", value=client).props("outlined")
-            connected = token_path(settings).is_file()
-            state = "Gmail est connecté." if connected else "Gmail n'est pas connecté."
+            if needs_reconnect(settings):
+                state = "Reconnectez Gmail pour autoriser l'envoi et le libellé."
+            elif token_path(settings).is_file():
+                state = "Gmail est connecté."
+            else:
+                state = "Gmail n'est pas connecté."
             ui.label(state).classes("yd-hint")
 
             def save() -> None:
@@ -969,6 +1132,7 @@ def paint_settings(draw) -> None:
                         signature.value or "",
                         int(raw_limit),
                         client_input.value or "",
+                        bool(attach.value),
                     )
                 except (OSError, ValueError) as exc:
                     show_error(exc)
@@ -978,17 +1142,20 @@ def paint_settings(draw) -> None:
 
             async def connect() -> None:
                 job = await run_job(
-                    "Connexion Gmail en cours. Une fenêtre du navigateur s'ouvre.",
-                    connect_gmail, draw,
+                    "Connexion Gmail en cours.",
+                    partial(connect_gmail, workspace.set_auth_url), draw,
                 )
                 if job.skipped:
+                    await _close_blank_gmail()
                     return
                 if job.error is None:
                     note("Connexion Gmail enregistrée. Aucun message envoyé.")
+                else:
+                    await _close_blank_gmail()
                 draw()
 
             ui.button("Enregistrer", on_click=save).props("unelevated no-caps").classes("yd-button")
-            ui.button("Connecter Gmail", on_click=connect).props("flat no-caps")
+            bind_gmail(ui.button("Connecter Gmail").props("flat no-caps"), connect)
 
 
 def _port_is_open(port: int) -> bool:

@@ -182,43 +182,117 @@ def test_drafts_already_created_today_fill_the_budget(session):
     assert called is False
 
 
-def test_create_draft_encodes_the_message_and_has_no_send_call():
-    class Drafts:
-        def __init__(self):
-            self.body = None
+class _Done:
+    def __init__(self, payload):
+        self.payload = payload
 
-        def create(self, userId, body):
-            self.body = (userId, body)
-            return self
+    def execute(self):
+        return self.payload
 
-        def execute(self):
-            return {"id": "draft-1"}
 
-    class Users:
-        def __init__(self):
-            self.drafts_api = Drafts()
+class _Labels:
+    def __init__(self, log, labels):
+        self.log = log
+        self.labels = labels
 
-        def drafts(self):
-            return self.drafts_api
+    def list(self, userId):
+        self.log.append(("labels.list", userId))
+        return _Done({"labels": self.labels})
 
-    class Service:
-        def __init__(self):
-            self.users_api = Users()
+    def create(self, userId, body):
+        self.log.append(("labels.create", userId, body))
+        return _Done({"id": "Label_new"})
 
-        def users(self):
-            return self.users_api
 
-    service = Service()
+class _Drafts:
+    def __init__(self, log):
+        self.log = log
+
+    def create(self, userId, body):
+        self.log.append(("drafts.create", userId, body))
+        return _Done({"id": "draft-1", "message": {"id": "msg-1"}})
+
+
+class _Messages:
+    def __init__(self, log, fail_label=False):
+        self.log = log
+        self.fail_label = fail_label
+
+    def send(self, userId, body):
+        self.log.append(("messages.send", userId, body))
+        return _Done({"id": "msg-sent"})
+
+    def modify(self, userId, id, body):
+        self.log.append(("messages.modify", id, body))
+        if self.fail_label:
+            raise RuntimeError("label refused")
+        return _Done({"id": id})
+
+
+class _Service:
+    def __init__(self, labels=None, fail_label=False):
+        self.log = []
+        self.labels_api = _Labels(self.log, [] if labels is None else labels)
+        self.drafts_api = _Drafts(self.log)
+        self.messages_api = _Messages(self.log, fail_label)
+
+    def users(self):
+        return self
+
+    def labels(self):
+        return self.labels_api
+
+    def drafts(self):
+        return self.drafts_api
+
+    def messages(self):
+        return self.messages_api
+
+
+def test_create_draft_encodes_the_message_and_applies_the_label():
+    service = _Service([{"id": "Label_9", "name": "adm-voitures-toyota-assurance"}])
     message, _text = build_message(
         Settings(contract_number="000"),
         Trip(youdrive_id="phone:x", started_at=datetime(2026, 9, 26, 12, 58, tzinfo=UTC), score=70),
     )
     assert create_draft(Settings(), message, service) == "draft-1"
-    user, body = service.users_api.drafts_api.body
+    kind, user, body = service.log[1]
+    assert kind == "drafts.create"
     assert user == "me"
     decoded = message_from_bytes(base64.urlsafe_b64decode(body["message"]["raw"]))
     assert decoded["To"] == "servicetechniqueyoudrive@directassurance.fr"
-    assert not hasattr(service, "send")
+    assert ("messages.send", "me", body) not in service.log
+    assert ("messages.modify", "msg-1", {"addLabelIds": ["Label_9"]}) in service.log
+
+
+def test_missing_label_is_created_before_the_draft():
+    service = _Service([])
+    message, _text = build_message(
+        Settings(contract_number="000"),
+        Trip(youdrive_id="phone:x", started_at=datetime(2026, 9, 26, 12, 58, tzinfo=UTC), score=70),
+    )
+    assert create_draft(Settings(), message, service) == "draft-1"
+    created = next(item for item in service.log if item[0] == "labels.create")
+    assert created[2]["name"] == "adm-voitures-toyota-assurance"
+    assert ("messages.modify", "msg-1", {"addLabelIds": ["Label_new"]}) in service.log
+
+
+def test_send_message_applies_the_label_and_keeps_the_id_if_the_label_fails():
+    from youdrive.claims.gmail import send_message
+
+    ready = _Service([{"id": "Label_9", "name": "adm-voitures-toyota-assurance"}])
+    message, _text = build_message(
+        Settings(contract_number="000"),
+        Trip(youdrive_id="phone:x", started_at=datetime(2026, 9, 26, 12, 58, tzinfo=UTC), score=70),
+    )
+    assert send_message(Settings(), message, ready) == "msg-sent"
+    assert any(item[0] == "messages.send" for item in ready.log)
+    assert ("messages.modify", "msg-sent", {"addLabelIds": ["Label_9"]}) in ready.log
+    assert not any(item[0] == "drafts.create" for item in ready.log)
+    failed = _Service(
+        [{"id": "Label_9", "name": "adm-voitures-toyota-assurance"}], fail_label=True,
+    )
+    assert send_message(Settings(), message, failed) == "msg-sent"
 
 
 def test_saved_reason_follows_the_date_and_the_address_stays_out(tmp_path):
@@ -256,6 +330,50 @@ def test_saved_reason_is_copied_and_the_address_stays_out(session):
     text = session.scalar(select(Claim.text))
     assert "Défaut de vitesse" in text
     assert "adresse privée" not in text
+
+
+def test_capture_stays_out_of_the_mail_when_the_setting_is_off(tmp_path):
+    name = f"{'cd' * 32}.png"
+    folder = tmp_path / "screenshots"
+    folder.mkdir()
+    (folder / name).write_bytes(b"\x89PNG\r\n\x1a\nsecret-image")
+    trip = Trip(
+        youdrive_id="phone:letter", started_at=datetime(2026, 9, 26, 12, 58, tzinfo=UTC),
+        score=72, gps={"screenshot": name},
+    )
+    message, text = build_message(
+        Settings(contract_number="000", db_path=tmp_path / "db.sqlite3", attach_screenshot=False),
+        trip,
+    )
+    assert [part for part in message.walk() if part.get_content_type() == "image/png"] == []
+    assert "secret" not in text
+    assert message.get_content_type() == "text/plain"
+
+
+def test_send_records_the_mail_and_keeps_the_daily_cap(session):
+    from youdrive.claims.drafts import send_messages
+
+    now = datetime(2026, 10, 6, 12, tzinfo=UTC)
+    trip = add_trip(session, "phone:send", datetime(2026, 9, 2, tzinfo=UTC))
+    trip.reason = "Motif envoyé"
+    made = send_messages(
+        session, Settings(contract_number="000"), now,
+        lambda _message: "msg-1", with_reason_only=True,
+    )
+    assert made == 1
+    claim = session.scalar(select(Claim))
+    assert claim is not None
+    assert claim.status == ClaimStatus.PENDING
+    assert claim.sent_at == now
+    assert claim.gmail_draft_id is None
+    assert "Motif envoyé" in claim.text
+    waiting = add_trip(session, "phone:later", datetime(2026, 9, 3, tzinfo=UTC))
+    waiting.reason = "Autre motif"
+    made_again = send_messages(
+        session, Settings(contract_number="000", daily_claim_limit=1), now,
+        lambda _message: "msg-2", with_reason_only=True,
+    )
+    assert made_again == 0
 
 
 def test_one_named_trip_is_prepared_on_its_own(session):

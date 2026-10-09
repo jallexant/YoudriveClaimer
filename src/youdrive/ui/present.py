@@ -50,6 +50,7 @@ class Snapshot:
     contract_ok: bool
     gmail_ok: bool
     trips: tuple[TripCard, ...]
+    gmail_reconnect: bool = False
 
 
 @dataclass(frozen=True)
@@ -64,6 +65,7 @@ class HomeView:
     ready: int
     budget_left: int
     daily_limit: int
+    gmail_reconnect: bool = False
 
 
 @dataclass(frozen=True)
@@ -73,6 +75,7 @@ class NextStep:
     detail: str
     button: str | None
     action: str | None
+    send_button: str | None = None
 
 
 def route_labels(gps: object) -> tuple[str, str]:
@@ -116,6 +119,7 @@ def home_view(
         trip_count=len(snapshot.trips),
         contract_ok=snapshot.contract_ok,
         gmail_ok=snapshot.gmail_ok,
+        gmail_reconnect=snapshot.gmail_reconnect,
         candidates=len(candidates),
         ready=ready,
         budget_left=snapshot.budget_left,
@@ -164,9 +168,15 @@ def next_step(view: HomeView) -> NextStep:
             "Ouvrir les réglages", "settings",
         )
     if not view.gmail_ok:
+        if view.gmail_reconnect:
+            return NextStep(
+                Step.GMAIL, "Reconnectez Gmail",
+                "Une page Google va s'ouvrir pour autoriser l'envoi et le libellé.",
+                "Reconnecter Gmail", "gmail",
+            )
         return NextStep(
             Step.GMAIL, "Connectez Gmail",
-            "Une fenêtre Google va s'ouvrir. Seuls des brouillons seront créés.",
+            "Une page Google va s'ouvrir. Préparer crée un brouillon, Envoyer transmet le mail.",
             "Connecter Gmail", "gmail",
         )
     if view.ready == 0:
@@ -181,16 +191,17 @@ def next_step(view: HomeView) -> NextStep:
             Step.BUDGET, "C'est fait pour aujourd'hui",
             (
                 f"Le plafond de {quota} est atteint. "
-                "Ouvrez Gmail, vérifiez les brouillons, et envoyez-les vous-même."
+                "Les brouillons et les envois du jour sont comptés."
             ),
             None, None,
         )
     count = min(view.budget_left, view.ready)
     label = "Préparer 1 brouillon" if count == 1 else f"Préparer {count} brouillons"
+    send = "Envoyer 1 mail" if count == 1 else f"Envoyer {count} mails"
     return NextStep(
         Step.DRAFTS, label,
-        "Les plus anciens d'abord, dans la limite du jour. Vous enverrez vous-même depuis Gmail.",
-        label, "drafts",
+        "Les plus anciens d'abord, dans la limite du jour. Envoyer transmet le mail tout de suite.",
+        label, "drafts", send,
     )
 
 
@@ -209,10 +220,18 @@ def chip_texts(view: HomeView) -> dict[str, tuple[bool | None, str]]:
         budget = f"{view.budget_left} restantes"
     return {
         "Téléphone": phone,
-        "Gmail": (view.gmail_ok, "connecté" if view.gmail_ok else "à connecter"),
+        "Gmail": _gmail_chip(view),
         "Contrat": (view.contract_ok, "renseigné" if view.contract_ok else "manquant"),
         "Budget": (view.budget_left > 0, budget),
     }
+
+
+def _gmail_chip(view: HomeView) -> tuple[bool, str]:
+    if view.gmail_reconnect:
+        return False, "à reconnecter"
+    if view.gmail_ok:
+        return True, "connecté"
+    return False, "à connecter"
 
 
 def format_when(moment: datetime, timezone: str) -> str:
@@ -279,9 +298,19 @@ def claim_line(card: TripCard, timezone: str) -> str:
     return f"Réclamée le {format_when(card.claim_at, timezone)}"
 
 
-def wait_copy(lines: list[str]) -> tuple[str, str]:
+def google_auth_url(url: str) -> str:
+    """Keep only a Google authorization page. Anything else is ignored."""
+    if not url.startswith("https://accounts.google.com/"):
+        return ""
+    if any(char.isspace() or char in "\"'<>\\" for char in url):
+        return ""
+    return url
+
+
+def wait_copy(lines: list[str], auth_url: str = "") -> tuple[str, str]:
     """Headline and sentence while a local operation is running."""
     latest = lines[-1] if lines else ""
+    auth_url = google_auth_url(auth_url)
     count = _latest_read_count(lines)
     if latest.startswith("Trajets lus"):
         return _count_title(count or 0), "La liste défile, des plus récents vers les plus anciens."
@@ -336,9 +365,18 @@ def wait_copy(lines: list[str]) -> tuple[str, str]:
     if latest.startswith("Lecture en cours"):
         return "Lecture des trajets", "Le téléphone reste déverrouillé. Aucun message n'est envoyé."
     if latest.startswith("Connexion Gmail"):
-        return "Connexion Gmail", "Une fenêtre du navigateur s'ouvre. Aucun message n'est envoyé."
+        if auth_url:
+            return (
+                "Connexion Gmail",
+                "Autorisez l'accès dans la page Google. "
+                "Si elle ne s'affiche pas, utilisez le bouton. "
+                "Aucun message n'est envoyé.",
+            )
+        return "Connexion Gmail", "Préparation de la page Google. Aucun message n'est envoyé."
     if latest.startswith("Préparation"):
-        return "Préparation des brouillons", "Aucun message n'est envoyé."
+        return "Préparation des brouillons", "Le libellé Gmail est ajouté au brouillon."
+    if latest.startswith("Envoi"):
+        return "Envoi des mails", "Le service technique YouDrive reçoit le message."
     if not latest:
         return "Un instant.", "Cela peut prendre un moment."
     return latest.rstrip("."), "Cela peut prendre un moment."
@@ -394,5 +432,13 @@ def describe_drafts(made: int, left: int, limit: int) -> str:
     created = "1 brouillon créé" if made == 1 else f"{made} brouillons créés"
     return (
         f"{created}. Préparations restantes aujourd'hui : {left}/{limit}. "
-        "Ouvrez Gmail pour les vérifier. Aucun message envoyé."
+        "Le libellé adm-voitures-toyota-assurance est ajouté."
+    )
+
+
+def describe_sends(made: int, left: int, limit: int) -> str:
+    sent = "1 mail envoyé" if made == 1 else f"{made} mails envoyés"
+    return (
+        f"{sent}. Préparations restantes aujourd'hui : {left}/{limit}. "
+        "Le libellé adm-voitures-toyota-assurance est ajouté."
     )

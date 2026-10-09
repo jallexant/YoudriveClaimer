@@ -131,9 +131,26 @@ a:focus-visible, .q-btn:focus-visible { outline: 3px solid #b7a3d9; outline-offs
   align-self: flex-start;
   }
 .yd-button:hover { filter: brightness(1.08); }
-.yd-hero .yd-button { margin-top: 6px; }
+.yd-hero-actions { gap: 12px; flex-wrap: wrap; align-items: center; }
+.yd-hero .yd-button, .yd-hero .yd-button-send { margin-top: 6px; }
+.yd-button-send.q-btn { color: var(--yd-purple) !important;
+  min-height: 44px;
+  padding: 0 24px;
+  border-radius: 24px;
+  }
 .yd-wait { flex: 1; width: 100%; min-width: 0; gap: 8px; }
 .yd-wait .q-linear-progress { width: 100%; margin-top: 6px; }
+a.yd-wait-link { align-self: flex-start;
+  background: var(--yd-purple);
+  color: white !important;
+  min-height: 44px;
+  padding: 10px 24px;
+  border-radius: 24px;
+  font-weight: 700;
+  text-decoration: none;
+  width: fit-content;
+  }
+a.yd-wait-link:hover { filter: brightness(1.08); }
 .yd-secondary { gap: 12px; flex-wrap: wrap; }
 .yd-card-grid { display: grid !important;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -392,4 +409,4 @@ def shell(active: str) -> Iterator[None]:
         yield
         with ui.element("footer").classes("yd-footer"):
             ui.icon("info_outline")
-            ui.label("Aucun message n'est envoyé.")
+            ui.label("Un mail part seulement avec Envoyer.")

@@ -32,7 +32,7 @@ def require_contract(settings: Settings) -> str:
 
 def build_message(settings: Settings, trip: Trip) -> tuple[EmailMessage, str]:
     contract = require_contract(settings)
-    capture = screenshot_path(settings, trip)
+    capture = screenshot_path(settings, trip) if settings.attach_screenshot else None
     text = _plain(settings, trip, contract)
     message = EmailMessage()
     message["To"] = CLAIM_TO

@@ -16,6 +16,7 @@ class Settings:
     contract_number: str = ""
     mail_signature: str = ""
     gmail_client_file: Path | None = None
+    attach_screenshot: bool = True
 
     def __post_init__(self) -> None:
         if self.daily_claim_limit < 1:
@@ -45,17 +46,25 @@ class Settings:
             contract_number=os.getenv("YOUDRIVE_CONTRACT_NUMBER", "").strip(),
             mail_signature=os.getenv("YOUDRIVE_MAIL_SIGNATURE", "").replace("\\n", "\n"),
             gmail_client_file=Path(client) if client else None,
+            attach_screenshot=_enabled("YOUDRIVE_ATTACH_SCREENSHOT", True),
         )
 
 
 _CONTRACT = re.compile(r"[0-9A-Za-z-]{1,32}")
 
 
+def _enabled(name: str, default: bool) -> bool:
+    raw = os.getenv(name)
+    if raw is None or not raw.strip():
+        return default
+    return raw.strip().lower() in {"1", "true", "oui", "yes", "on"}
+
+
 def save_preferences(
     env_file: Path, contract_number: str, mail_signature: str,
-    daily_claim_limit: int, gmail_client_file: str,
+    daily_claim_limit: int, gmail_client_file: str, attach_screenshot: bool,
 ) -> None:
-    """Write the four fields edited from the local screen. Other keys stay in the file."""
+    """Write the fields edited from the local screen. Other keys stay in the file."""
     contract_number = contract_number.strip()
     if contract_number and _CONTRACT.fullmatch(contract_number) is None:
         raise ValueError("Numéro de contrat invalide.")
@@ -66,6 +75,7 @@ def save_preferences(
         contract_number=contract_number,
         mail_signature=mail_signature,
         gmail_client_file=Path(client) if client else None,
+        attach_screenshot=attach_screenshot,
     )
     env_file.parent.mkdir(parents=True, exist_ok=True)
     if not env_file.exists():
@@ -76,3 +86,6 @@ def save_preferences(
     set_key(path, "YOUDRIVE_MAIL_SIGNATURE", stored_signature, quote_mode="always")
     set_key(path, "YOUDRIVE_DAILY_CLAIM_LIMIT", str(daily_claim_limit), quote_mode="never")
     set_key(path, "YOUDRIVE_GMAIL_CLIENT_FILE", client, quote_mode="always")
+    set_key(
+        path, "YOUDRIVE_ATTACH_SCREENSHOT", "1" if attach_screenshot else "0", quote_mode="never",
+    )
